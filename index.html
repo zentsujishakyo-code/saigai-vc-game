@@ -45,7 +45,20 @@ body{
   margin-left:auto;background:var(--orange);color:#fff;
   padding:3px 12px;border-radius:20px;font-size:12px;font-weight:bold;
 }
-#progress{height:4px;background:#d7dcde;margin:0 0 12px;}
+#progress{height:4px;background:#d7dcde;margin:0;}
+
+/* いま1日のどこにいるかを、つねに出しておきます */
+#flowstrip{
+  display:none;gap:4px;flex-wrap:wrap;align-items:center;
+  background:#fff;border-bottom:1px solid var(--line);padding:7px 10px;margin:0 0 12px;
+}
+#flowstrip.on{display:flex;}
+#flowstrip span{
+  padding:3px 9px;border-radius:12px;background:#eef1f2;color:#93a0a4;
+  white-space:nowrap;font-size:.76rem;
+}
+#flowstrip span.done{background:#e4efe8;color:#5c8a6d;}
+#flowstrip span.now{background:var(--orange);color:#fff;font-weight:bold;}
 #backbtn,#sizebtn{
   background:rgba(255,255,255,.14);color:#fff;
   border:1px solid rgba(255,255,255,.4);border-radius:16px;padding:5px 13px;
@@ -118,8 +131,41 @@ button:disabled{opacity:.4;cursor:not-allowed;}
 .btnrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}
 .btnrow.end{justify-content:flex-end;}
 
+/* ============================================================
+   媒体の見分け
+   ------------------------------------------------------------
+   初めての人が「これは紙？パソコンの画面？口で言うだけ？」で
+   迷わないよう、3つを色と見出しではっきり分けています。
+     青い枠  … kintoneアプリ（記録が残る）
+     茶色い枠… 紙の書類（手書き・印刷して渡す）
+     濃紺の枠… 口頭でのやりとり（記録は残らない）
+   ============================================================ */
+.kin::before{
+  content:"💻 kintone アプリ　―　入力すると記録が残ります";
+  display:block;background:#2b6088;color:#fff;
+  font-size:.8rem;font-weight:bold;padding:5px 12px;letter-spacing:.03em;
+}
+.sheet::before{
+  content:"📄 紙の書類　―　手書きで記入します";
+  display:block;background:#8a7442;color:#fff;
+  font-size:.8rem;font-weight:bold;padding:5px 10px;letter-spacing:.03em;
+  margin:-14px -14px 12px;
+}
+.doc::before{
+  content:"📄 紙の書類　―　印刷して手渡します";
+  display:block;background:#8a7442;color:#fff;
+  font-size:.8rem;font-weight:bold;padding:5px 10px;letter-spacing:.03em;
+  margin:-18px -18px 14px;
+}
+.phone::before{
+  content:"🗣 口頭でのやりとり　―　このままでは記録に残りません";
+  display:block;font-size:.8rem;opacity:.6;margin-bottom:9px;letter-spacing:.03em;
+  position:relative;
+}
+.sheetov-body .sheet::before{margin:-12px -12px 12px;}
+
 /* ===== kintone風 ===== */
-.kin{background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:14px;}
+.kin{background:#fff;border:2px solid #9cb9cf;border-radius:8px;overflow:hidden;margin-bottom:14px;}
 .kin-head{
   background:#f4f6f7;border-bottom:1px solid var(--line);
   padding:9px 14px;display:flex;align-items:center;gap:10px;
@@ -256,7 +302,7 @@ button:disabled{opacity:.4;cursor:not-allowed;}
 .split .sheetcol{flex:0 0 320px;position:sticky;top:64px;}
 .split .formcol{flex:1 1 340px;min-width:0;}
 .sheet{
-  background:#fffdf7;border:1px solid #ccc3ab;border-radius:4px;padding:14px;
+  background:#fffdf7;border:2px solid #bda978;border-radius:4px;padding:14px;overflow:hidden;
   font-size:12.5px;line-height:1.75;
   box-shadow:2px 2px 0 rgba(0,0,0,.05);
 }
@@ -294,6 +340,20 @@ button:disabled{opacity:.4;cursor:not-allowed;}
 .screen .scr-play:disabled{opacity:1;border-color:rgba(255,255,255,.3);}
 .screen .scr-bar{height:4px;background:rgba(255,255,255,.18);border-radius:2px;margin-top:14px;}
 .screen .scr-bar > div{height:100%;width:0;background:var(--orange);border-radius:2px;transition:width .13s linear;}
+
+/* 文例ボタン（一から文章を打たなくても進めるように） */
+.samples{
+  background:#f4f8fa;border:1px solid #d5e3ea;border-radius:6px;
+  padding:8px 10px;margin-bottom:8px;
+}
+.samples-t{font-size:.8rem;color:#5b7e93;font-weight:bold;margin-bottom:6px;}
+.samples-h{font-size:.78rem;color:var(--sub);margin-top:6px;}
+.sample{
+  background:#fff;border:1px solid #a9c6d6;color:#2b6088;
+  border-radius:14px;padding:6px 13px;margin:0 5px 5px 0;font-size:.88rem;
+}
+.sample:hover{background:#e8f2f7;}
+.sample.on{background:#2b6088;border-color:#2b6088;color:#fff;font-weight:bold;}
 
 /* 質問候補 */
 .qbtn{
@@ -448,6 +508,7 @@ button{font-size:1.06rem;}
   <button id="sizebtn" onclick="cycleTextSize()">文字 標準</button>
 </div>
 <div id="progress"><div id="progressbar"></div></div>
+<div id="flowstrip"></div>
 
 <div id="app"></div>
 <div id="modalroot"></div>

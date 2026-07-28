@@ -21,10 +21,31 @@ const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const norm = t => String(t || '').replace(/[\s　]/g, '');
 
+/* 1日の流れ。いまどこにいるかを、つねに画面上部に出します */
+const FLOW = ['①ニーズ受付', '②現地調査', '③当日受付', '④オリエン・マッチング',
+              '⑤送り出し', '⑥活動', '⑦活動報告', '⑧ふりかえり'];
+function stepOf(phase) {
+  if (/ふりかえり|本日終了/.test(phase)) return 7;
+  if (/活動報告|活動後/.test(phase))     return 6;
+  if (/午後|帰着/.test(phase))           return 5;
+  if (/資機材|送り出/.test(phase))       return 4;
+  if (/オリエン|マッチング/.test(phase)) return 3;
+  if (/当日受付/.test(phase))            return 2;
+  if (/現地調査/.test(phase))            return 1;
+  if (/ニーズ受付/.test(phase))          return 0;
+  return -1;
+}
 function setTop(time, phase, team) {
   $('#clock').textContent = time;
   $('#phase').textContent = phase;
   $('#team').textContent  = team;
+  const strip = document.getElementById('flowstrip');
+  if (!strip) return;
+  const cur = stepOf(phase);
+  if (cur < 0) { strip.className = ''; strip.innerHTML = ''; return; }
+  strip.className = 'on';
+  strip.innerHTML = FLOW.map((f, i) =>
+    '<span class="' + (i === cur ? 'now' : i < cur ? 'done' : '') + '">' + f + '</span>').join('');
 }
 function bump() {
   S.step++;
@@ -65,6 +86,27 @@ document.addEventListener('click', e => {
 /* 選択されている値を配列で返す */
 function picked(id) { return $$('#' + id + ' .opt.on').map(o => o.dataset.v); }
 function pick1(id)  { const a = picked(id); return a.length ? a[0] : ''; }
+
+/* 文例ボタン。押すと入力欄に入り、あとから直せます。
+   （一から文章を打たなくても進めるようにするための仕組みです） */
+function samples(list, targetId) {
+  return '<div class="samples"><div class="samples-t">文例から選んで入れる（あとから直せます）</div>' +
+    list.map((s, i) =>
+      '<button type="button" class="sample" onclick="useSample(\'' + targetId + '\',' + i + ',this)">' +
+      esc(s.label) + '</button>').join('') +
+    '<div class="samples-h">どれを選んでもかまいません。保存したあとに、どう見えるかを確かめてください。</div></div>';
+}
+let SAMPLE_SETS = {};
+function useSample(targetId, i, btn) {
+  const list = SAMPLE_SETS[targetId] || [];
+  if (!list[i]) return;
+  const el = $('#' + targetId);
+  if (el) { el.value = list[i].t; el.focus(); el.scrollTop = 0; }
+  const box = btn.parentElement;
+  $$('.sample', box).forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  const f = box.closest('.fld'); if (f) f.classList.remove('err');
+}
 
 /* 選択肢のHTML */
 function optsHtml(id, list, multi) {
@@ -515,8 +557,7 @@ function sceneEscalate(idx) {
       '<div class="formcol">' +
         '<div class="panel" style="background:#fdeceb;border-color:#f3c4c0">' +
           '<p style="margin:0;font-size:1rem">' + esc(c.requester) + 'さんは、' +
-          '<b>一人暮らし・持病あり・断水で生活が成り立っていない</b>状態です。' +
-          '土砂を撤去すれば終わり、という話ではありません。</p>' +
+          (c.crisisSummary || '危機介入が必要と判断した状態です。') + '</p>' +
         '</div>' +
         '<div class="panel"><h2>どうしますか？</h2>' +
           '<div class="btnrow" style="flex-direction:column">' +
@@ -550,10 +591,16 @@ function answerEscalate(idx, a) {
   }
   mark(ok, '危機介入が必要な事例を、受付の時点で班長・センター長に報告した', d);
 
+  // 危機介入までは要らない方を上げた場合は、班長がその場で修正します
+  const doubt = (!c.judge.crisis && c.chiefDoubt)
+    ? '<div class="panel" style="margin:12px 0 0;background:#f6f8f8">' +
+      '<p style="margin:0"><b>班長から</b><br>' + c.chiefDoubt + '</p></div>'
+    : '';
+
   modal('<h3>' + (ok ? '✓ その判断で正解です' : '報告のタイミングを確認しましょう') + '</h3>' +
     '<p>' + d + '</p>' +
     '<p class="muted">受付シートに「危機介入の必要性」の欄があるのは、' +
-    '<b>この判断を紙の上で見えるようにして、上に上げるため</b>でもあります。</p>' +
+    '<b>この判断を紙の上で見えるようにして、上に上げるため</b>でもあります。</p>' + doubt +
     '<div class="btnrow end"><button class="btn" onclick="closeModal();needsForm(' + idx + ')">kintoneに入力する</button></div>');
 }
 
@@ -664,8 +711,11 @@ function needsForm(idx) {
         '<div class="hint">名簿アプリの「種別」が自動で入ります。変更するときは名簿側を直します。</div></div>' +
     '</div></div>' +
     '<div class="fld" id="f_body"><label>依頼内容<span class="req">必須</span></label>' +
-      '<textarea id="i_body" placeholder="次の班（現地調査班）が読んで判断できるように、具体的に書いてください"></textarea>' +
-      '<div class="hint">例：' + esc(c.modelText) + '</div><div class="errmsg"></div></div>';
+      samples(c.bodySamples || [], 'i_body') +
+      '<textarea id="i_body" placeholder="次の班（現地調査班）が読んで判断できるように書きます"></textarea>' +
+      '<div class="hint">この文章だけを見て、現地調査班は現場へ向かいます。</div>' +
+      '<div class="errmsg"></div></div>';
+  SAMPLE_SETS['i_body'] = c.bodySamples || [];
 
   show(
     navi('電話が終わりました。ここからは<b>左の受付シートを見ながら</b>、kintoneに入力します。<br>' +
@@ -966,7 +1016,9 @@ function sceneSurvey(i, desk) {
     '<div class="fld" id="f_cat"><label>依頼分類<span class="req">必須</span></label>' +
       optsHtml('o_cat', ['土砂撤去', '荷物運び出し', '清掃', 'その他'], true) + '<div class="errmsg"></div></div>' +
     '<div class="fld" id="f_ppl"><label>必要人数等<span class="req">必須</span></label>' +
-      '<input type="number" id="i_ppl" min="1" max="20" placeholder="何人で行けば終わりそうか"><div class="errmsg"></div></div>' +
+      optsHtml('o_ppl', CONFIG.PEOPLE_CHOICES, false) +
+      '<div class="hint">何人で行けば終わりそうか。<b>決まった正解はありません。</b></div>' +
+      '<div class="errmsg"></div></div>' +
     '<div class="fld" id="f_eq"><label>資機材等<span class="req">必須</span></label>' +
       optsHtml('o_eq', CONFIG.EQUIPMENT, true) +
       '<div class="hint">資機材班はこの記載どおりに準備します。運び出しに車が要るなら「軽トラック」も忘れずに。</div><div class="errmsg"></div></div>' +
@@ -974,9 +1026,11 @@ function sceneSurvey(i, desk) {
       optsHtml('o_cri', ['必要あり'], true) +
       '<div class="hint">生命や生活が今すぐ脅かされている方は、ここにチェックを入れて優先します。</div></div>' +
     '<div class="fld"><label>特記事項・メモ</label>' +
+      samples(CONFIG.MEMO_SAMPLES, 'i_memo') +
       '<textarea id="i_memo" placeholder="必要人数や資機材を、なぜその見立てにしたのか"></textarea>' +
       '<div class="hint">人数に決まった正解はありません。だからこそ、<b>そう判断した理由</b>を残しておくと、' +
       '資機材班とマッチング班が現場に合わせて増減を判断できます。</div></div>';
+  SAMPLE_SETS['i_memo'] = CONFIG.MEMO_SAMPLES;
 
   show(
     (desk
@@ -998,8 +1052,8 @@ function saveSurvey(i) {
   clearFails();
   if (!picked('o_dmg').length) return fail('f_dmg', '必須項目です。');
   if (!picked('o_cat').length) return fail('f_cat', '必須項目です。');
-  const ppl = parseInt($('#i_ppl').value, 10);
-  if (!ppl || ppl < 1) return fail('f_ppl', '必要人数を入力してください。');
+  const ppl = parseInt(pick1('o_ppl'), 10);
+  if (!ppl) return fail('f_ppl', '必要人数を選んでください。');
   const eq = picked('o_eq');
   if (!eq.length) return fail('f_eq', '必要な資機材を選んでください。');
 
@@ -1073,7 +1127,7 @@ function sceneRecept() {
       '<div style="font-size:.92rem;color:var(--sub);margin-bottom:6px">受付テントに貼ってあるQRコード</div>' +
       qrSvg() +
       '<p class="muted">読み取り → Googleフォーム入力 → 送信 → 当日受付アプリへ自動登録</p>' +
-      '<button class="btn btn-lg" onclick="startArrivals()">受付を開始する</button>' +
+      '<button class="btn btn-lg" id="startRecBtn" onclick="startArrivals()">受付を開始する</button>' +
     '</div>' +
     '<div id="recArea"></div>'
   );
@@ -1091,7 +1145,12 @@ function qrSvg() {
     '<rect x="8" y="78" width="26" height="26" fill="none" stroke="#222" stroke-width="5"/></g></svg>';
 }
 
+let arrivalsStarted = false;
 function startArrivals() {
+  if (arrivalsStarted) return;          // 二重登録の防止（何度も押せてしまう不具合の対策）
+  arrivalsStarted = true;
+  const b = $('#startRecBtn');
+  if (b) { b.disabled = true; b.textContent = '受付中…'; }
   $('#recArea').innerHTML = '<div id="recTbl"></div>';
   let i = 0;
   const tick = setInterval(() => {
@@ -1101,7 +1160,9 @@ function startArrivals() {
       return;
     }
     const v = CONFIG.VOLUNTEERS[i];
-    S.vols.push(Object.assign({}, v, { name: v.last + ' ' + v.first, assignedTo: null }));
+    const nm = v.last + ' ' + v.first;
+    if (S.vols.some(x => x.name === nm)) { i++; return; }   // 同姓同名の重複を作らない
+    S.vols.push(Object.assign({}, v, { name: nm, assignedTo: null }));
     $('#recTbl').innerHTML = recList();
     i++;
   }, 700);
@@ -1140,7 +1201,10 @@ function walkinForm() {
 }
 function saveWalkin() {
   const w = CONFIG.WALKIN;
-  S.vols.push(Object.assign({}, w, { name: w.last + ' ' + w.first, assignedTo: null }));
+  const nm = w.last + ' ' + w.first;
+  if (!S.vols.some(x => x.name === nm)) {
+    S.vols.push(Object.assign({}, w, { name: nm, assignedTo: null }));
+  }
   closeModal();
   $('#recArea').innerHTML = '<div id="recTbl">' + recList() + '</div>' +
     '<div class="panel"><p>本日の受付は <b>' + S.vols.length + '名</b> です。' +
@@ -1704,44 +1768,41 @@ function sceneReport() {
       '<div class="fld"><label>進捗状況</label><div>' + statusBadge(n.status) + '</div></div>',
       { actions: '<button class="actbtn" onclick="openReport(true)">活動報告</button>' +
                  '<button class="actbtn" style="background:#8fa6ae" onclick="openMapMemo()">ニーズマップ</button>' }) +
-    '<div class="panel"><p class="muted" style="margin:0 0 10px">別のやり方でも入力できます。</p>' +
-      '<button class="btn-gray btn-lg" onclick="openReport(false)">活動報告アプリを開いて、新規レコードを作る</button></div>'
+    '<div class="panel" style="background:#fff8ee;border-color:#f3ddb5">' +
+      '<p style="margin:0">上の<b>オレンジのボタン</b>から活動報告を作ると、ニーズIDが自動で引き継がれ、' +
+      'ニーズと報告がひもづきます。<br>' +
+      '<span class="muted">活動報告アプリを単体で開いて作ると、ここが空欄のままになり、' +
+      'ニーズ管理側から「活動した記録がない」ように見えてしまいます。' +
+      '<b>必ずニーズのレコードから始める</b>と覚えてください。</span></p></div>'
   );
 }
 
 let reportLinked = true;
 function openReport(viaAction) {
-  reportLinked = viaAction;
+  reportLinked = true;
+  SAMPLE_SETS['i_rep'] = CONFIG.REPORT_SAMPLES;
   const n = S.needs.find(x => S.vols.some(v => v.assignedTo === x.id)) || S.needs[0];
   const members = S.vols.filter(v => v.assignedTo === n.id).map(v => v.name);
-  mark(viaAction, 'アクションボタンから活動報告を作成した',
-    viaAction ? 'ニーズIDが自動で引き継がれ、ニーズと報告がひもづきました。'
-              : '活動報告アプリから直接作ると、<b>ニーズIDが空のまま</b>になります。報告は保存されますが、ニーズ管理側から見ると「活動した記録がない」状態になり、完了の判断ができません。必ずニーズ管理のレコードから［活動報告］ボタンを押してください。');
 
-  const idField = viaAction
-    ? '<div class="fld"><label>ニーズID</label><input type="text" class="readonly" readonly value="' + n.id + '" style="background:#fff8ee;border-color:var(--orange)">' +
-      '<div class="hint" style="color:var(--orange-d)">↑ アクションボタンから開いたので、自動で入りました</div></div>'
-    : '<div class="fld"><label>ニーズID</label>' +
-      '<input type="text" class="readonly" readonly value="" style="border-color:var(--red);background:#fff6f5">' +
-      '<div class="hint" style="color:var(--red)">空のままです。このままだとニーズとひもづきません。</div></div>';
+  const idField =
+    '<div class="fld"><label>ニーズID</label><input type="text" class="readonly" readonly value="' + n.id + '" style="background:#fff8ee;border-color:var(--orange)">' +
+    '<div class="hint" style="color:var(--orange-d)">↑ ［活動報告］ボタンから開いたので、自動で入りました</div></div>';
 
   show(
-    (viaAction ? navi('ニーズIDが自動で引き継がれました。この状態で入力すれば、ニーズと報告がひもづきます。')
-               : navi('<b>ニーズIDが入っていません。</b>このまま保存すると、ニーズ管理側から報告が見えなくなります。' +
-                      '<br>本来は、ニーズ管理のレコードから［活動報告］ボタンを押します。')) +
+    navi('ニーズIDが自動で引き継がれました。この状態で入力すれば、ニーズと報告がひもづきます。') +
     kin('report',
       idField +
       '<div class="fld"><label>活動日</label><input type="text" class="readonly" readonly value="' + esc(CONFIG.DAY) + '"></div>' +
       '<div class="fld"><label>報告者</label><input type="text" class="readonly" readonly value="' + esc(members[0] || '') + '"></div>' +
       '<div class="fld"><label>活動人数</label><input type="text" class="readonly" readonly value="' + members.length + '名"></div>' +
       '<div class="fld" id="f_rep"><label>報告内容<span class="req">必須</span></label>' +
+        samples(CONFIG.REPORT_SAMPLES, 'i_rep') +
         '<textarea id="i_rep" placeholder="紙の報告書の内容と、口頭で聞き取った内容を入力します"></textarea>' +
         '<div class="hint">口頭でしか出てこない情報（次回への申し送り、ご本人の様子など）も忘れずに。</div>' +
         '<div class="errmsg"></div></div>' +
       '<div class="fld" id="f_prg"><label>進捗状況<span class="req">必須</span></label>' +
         optsHtml('o_prg', ['継続', '完了'], false) + '<div class="errmsg"></div></div>',
-      { plus: true, foot: '<button class="btn-gray" onclick="sceneReport()">キャンセル</button>' +
-                          '<button class="btn" onclick="saveReport()">保存</button>' })
+      { plus: true, foot: '<button class="btn" onclick="saveReport()">保存</button>' })
   );
 }
 
@@ -2014,6 +2075,7 @@ function restart() {
   S.sheet = { fields: {}, memo: [], asked: [], ended: false, judge: {} };
   S.flags = {};
   Object.keys(seenApps).forEach(k => delete seenApps[k]);
+  arrivalsStarted = false;
   if (typeof NAV !== 'undefined') { NAV.stack = []; updateBackBtn(); }
   sceneTitle();
 }
