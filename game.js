@@ -53,8 +53,10 @@ function bump() {
 }
 function show(html) {
   closeSheet();                       // 前の画面で開いていた受付シートは閉じる
+  clearFinger();
   app().innerHTML = '<div class="fade">' + html + '</div>';
   window.scrollTo(0, 0);
+  setTimeout(autoPoint, 60);
 }
 function navi(text) {
   return '<div class="navi"><div class="face">' + sil('staff') + '</div><div class="say">' + text + '</div></div>';
@@ -87,25 +89,88 @@ document.addEventListener('click', e => {
 function picked(id) { return $$('#' + id + ' .opt.on').map(o => o.dataset.v); }
 function pick1(id)  { const a = picked(id); return a.length ? a[0] : ''; }
 
-/* 文例ボタン。押すと入力欄に入り、あとから直せます。
-   （一から文章を打たなくても進めるようにするための仕組みです） */
-function samples(list, targetId) {
-  return '<div class="samples"><div class="samples-t">文例から選んで入れる（あとから直せます）</div>' +
-    list.map((s, i) =>
-      '<button type="button" class="sample" onclick="useSample(\'' + targetId + '\',' + i + ',this)">' +
-      esc(s.label) + '</button>').join('') +
-    '<div class="samples-h">どれを選んでもかまいません。保存したあとに、どう見えるかを確かめてください。</div></div>';
+/* ============================================================
+   紙からkintoneへの「書き写し」
+   ------------------------------------------------------------
+   本番のkintoneでは、この欄は自分で文章を入力します。
+   ここでは流れをつかむことを優先して、ボタンひとつで書き写せる
+   ようにしています。押すと、気をつけることを説明したうえで、
+   1文字ずつ入力される様子を見せます。
+   ============================================================ */
+let COPY_SETS = {};
+
+function copyBox(targetId, label, tip, text) {
+  COPY_SETS[targetId] = { tip: tip, text: text, label: label };
+  return '<div class="copybox">' +
+    '<div class="ch">📄 → 💻　' + esc(label) + '</div>' +
+    '<button type="button" class="copybtn" id="cb_' + targetId + '" ' +
+      'onclick="copyFromSheet(\'' + targetId + '\')">受付シートから書き写す</button>' +
+    '</div>';
 }
-let SAMPLE_SETS = {};
-function useSample(targetId, i, btn) {
-  const list = SAMPLE_SETS[targetId] || [];
-  if (!list[i]) return;
+
+function copyFromSheet(targetId) {
+  const c = COPY_SETS[targetId];
+  if (!c) return;
+  modal('<h3>📄 → 💻　' + esc(c.label) + '</h3>' +
+    '<p class="muted" style="margin:0 0 10px">紙の受付シートを見ながら、kintoneに書き写します。</p>' +
+    '<div class="panel" style="margin:0;background:#fffaf0;border-color:#f3ddb5">' +
+      '<p style="margin:0"><b>気をつけること</b><br>' + c.tip + '</p></div>' +
+    '<p class="simplenote" style="margin-top:12px">本番のkintoneでは、ここは<b>自分で文章を入力します</b>。' +
+    'このゲームでは流れをつかむことを優先して、ボタンで書き写せるようにしています。</p>' +
+    '<div class="btnrow end"><button class="btn" onclick="closeModal();runCopy(\'' + targetId + '\')">書き写す</button></div>');
+}
+
+/* 1文字ずつ入力していく様子を見せます */
+function runCopy(targetId) {
+  const c = COPY_SETS[targetId];
   const el = $('#' + targetId);
-  if (el) { el.value = list[i].t; el.focus(); el.scrollTop = 0; }
-  const box = btn.parentElement;
-  $$('.sample', box).forEach(b => b.classList.remove('on'));
-  btn.classList.add('on');
-  const f = box.closest('.fld'); if (f) f.classList.remove('err');
+  const btn = $('#cb_' + targetId);
+  if (!c || !el) return;
+  if (btn) { btn.classList.add('done'); btn.textContent = '書き写しました'; }
+  const f = el.closest('.fld'); if (f) f.classList.remove('err');
+  clearFinger();
+  el.value = '';
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  let i = 0;
+  const speed = Math.max(8, Math.min(28, 900 / c.text.length));
+  const tick = setInterval(() => {
+    i += 2;
+    el.value = c.text.slice(0, i);
+    el.scrollTop = el.scrollHeight;
+    if (i >= c.text.length) { clearInterval(tick); el.value = c.text; autoPoint(); }
+  }, speed);
+}
+
+/* ===== 押すべきボタンを指し示す ===== */
+function clearFinger() {
+  const f = document.getElementById('finger');
+  if (f) f.remove();
+}
+function pointAt(el) {
+  clearFinger();
+  if (!el || el.disabled) return;
+  const r = el.getBoundingClientRect();
+  if (r.width === 0) return;
+  const d = document.createElement('div');
+  d.id = 'finger'; d.className = 'finger'; d.textContent = '👆';
+  d.style.left = (r.right + window.scrollX - 16) + 'px';
+  d.style.top  = (r.bottom + window.scrollY - 8) + 'px';
+  document.body.appendChild(d);
+}
+/* いま押すべきものを、上から順に探します */
+function autoPoint() {
+  if (document.querySelector('.mask')) return clearFinger();   // モーダル中は出さない
+  // 氏名を書き写したら、次は「取得」を押してもらう
+  const req = $('#i_req');
+  if (req && req.value.trim() && !lookupOK) return pointAt($('.lookup .btn'));
+  const el =
+    $('.copybtn:not(.done)') ||
+    $$('.qbtn').find(b => !b.disabled) ||
+    $$('.btn-lg').find(b => !b.disabled) ||
+    $('.kin-foot .btn') ||
+    $('.actbtn') ||
+    $$('.panel .btn').find(b => !b.disabled);
+  pointAt(el);
 }
 
 /* 選択肢のHTML */
@@ -127,10 +192,14 @@ function clearFails() { $$('.fld.err').forEach(f => f.classList.remove('err')); 
 
 /* モーダル */
 function modal(html) {
+  clearFinger();
   document.getElementById('modalroot').innerHTML =
     '<div class="mask"><div class="modal fade">' + html + '</div></div>';
 }
-function closeModal() { document.getElementById('modalroot').innerHTML = ''; }
+function closeModal() {
+  document.getElementById('modalroot').innerHTML = '';
+  setTimeout(autoPoint, 60);
+}
 function closeSheet() {
   const r = document.getElementById('sheetroot');
   if (r) r.innerHTML = '';
@@ -293,7 +362,7 @@ function sceneTitle() {
     '<div class="panel">' +
       '<p>災害ボランティアセンターの1日を、ひとりで体験できるゲームです。' +
       'kintoneによく似た画面で、実際に入力しながら流れをつかみます。</p>' +
-      '<p class="muted">所要 約25分／パソコン・スマホどちらでも／' +
+      '<p class="muted">所要 約20分／パソコン・スマホどちらでも／' +
       '<b>本番のkintoneには一切つながっていません。</b>登場する氏名・住所・電話番号はすべて架空のものです。</p>' +
       '<button class="btn btn-lg" style="margin-top:16px" onclick="sceneIntro(0)">はじめる</button>' +
       '<p class="muted center" style="margin:12px 0 0;font-size:.88rem">' +
@@ -421,10 +490,10 @@ function sceneIntake(idx) {
   drawIntake(idx);
 }
 
-function drawIntake(idx) {
+function drawIntake(idx, writeKeys) {
   const c = CONFIG.CALLS[idx];
   const left = c.askBudget - S.sheet.asked.length;
-  paintSheet(c);
+  paintSheet(c, writeKeys);
   if (S.sheet.ended) return;
   $('#qpanel').innerHTML =
     '<div class="qbudget">聞ける回数　のこり <b>' + left + '</b> 回' +
@@ -434,6 +503,7 @@ function drawIntake(idx) {
         (S.sheet.asked.indexOf(i) >= 0 ? ' disabled' : ' onclick="ask(' + idx + ',' + i + ')"') + '>' +
         '「' + esc(q.q) + '」</button>').join('') +
     '<button class="btn-gray btn-lg" style="margin-top:10px" onclick="endIntake(' + idx + ')">聞き取りを終える</button>';
+  autoPoint();
 }
 
 function ask(idx, qi) {
@@ -453,29 +523,30 @@ function ask(idx, qi) {
   if (q.memo) S.sheet.memo.push(q.memo);
 
   // どの欄に書き取られたかを伝える（シートが画面に出ていなくても分かるように）
-  let wrote = [];
+  let wrote = [], slots = [];
   if (q.set) Object.keys(q.set).forEach(k => {
+    slots.push(k);
     const l = SHEET_LABEL[k]; if (l && wrote.indexOf(l) < 0) wrote.push(l);
   });
-  if (q.memo) wrote.push('現地の様子・補足メモ');
+  if (q.memo) { slots.push('memo'); wrote.push('現地の様子・補足メモ'); }
   if (wrote.length) {
     $('#talk').insertAdjacentHTML('beforeend',
-      '<p class="wrote fade">✍ 受付シートの「' + esc(wrote.join('」「')) + '」に書き取りました</p>');
+      '<p class="wrote fade">✏️ 受付シートの「' + esc(wrote.join('」「')) + '」に書き取りました</p>');
   }
 
   if (S.sheet.asked.length >= c.askBudget) {
     S.sheet.tired = true;
     $('#talk').insertAdjacentHTML('beforeend',
       '<p class="line fade" style="color:#ffd9a0">「すみません、少し疲れてしもうて…。またお電話します。」</p>');
-    return endIntake(idx);
+    return endIntake(idx, slots);
   }
-  drawIntake(idx);
+  drawIntake(idx, slots);
 }
 
-function endIntake(idx) {
+function endIntake(idx, writeKeys) {
   const c = CONFIG.CALLS[idx];
   S.sheet.ended = true;
-  paintSheet(c);
+  paintSheet(c, writeKeys);
   $('#qpanel').innerHTML =
     '<h2 style="font-size:1.06rem">受付時の判断</h2>' +
     '<p class="muted">聞き取った内容をもとに、受付シートの下段を記入します。</p>' +
@@ -627,12 +698,20 @@ function openSheet() {
     '</div>';
 }
 
-/* シートに書き込んだら、左の欄も重ね表示も同時に描き直す */
-function paintSheet(c) {
+/* シートに書き込んだら、左の欄も重ね表示も同時に描き直す。
+   writeKeys を渡すと、その欄だけ鉛筆で書いているように見せます。 */
+function paintSheet(c, writeKeys) {
   const col = $('#sheetcol');           if (col) col.innerHTML = sheetHtml(c);
   const ov  = $('#sheetOverlayBody');   if (ov)  ov.innerHTML  = sheetHtml(c, true);
   const fab = $('#sheetfab');
   if (fab) { fab.classList.remove('ping'); void fab.offsetWidth; fab.classList.add('ping'); }
+  if (writeKeys && writeKeys.length) {
+    writeKeys.forEach(k => {
+      $$('[data-slot="' + k + '"]').forEach(el => {
+        el.classList.remove('writing'); void el.offsetWidth; el.classList.add('writing');
+      });
+    });
+  }
 }
 
 /* 聞き取った内容が、シートのどの欄に入ったかを伝えます */
@@ -641,8 +720,9 @@ const SHEET_LABEL = { name: '氏名', tel: '電話番号', addr: '住所', state
 /* 受付シート（紙）の描画 */
 function sheetHtml(c, bare) {
   const f = S.sheet.fields, j = S.sheet.judge, ended = S.sheet.ended;
-  const row = (k, v) => '<div class="row"><div class="k">' + k + '</div>' +
-    '<div class="v ' + (v ? 'filled' : 'blank') + '">' + (v ? esc(v) : '（未確認）') + '</div></div>';
+  const row = (k, v, slot) => '<div class="row"><div class="k">' + k + '</div>' +
+    '<div class="v ' + (v ? 'filled' : 'blank') + '"' + (slot ? ' data-slot="' + slot + '"' : '') + '>' +
+    (v ? '<span class="ink">' + esc(v) + '</span>' : '（未確認）') + '</div></div>';
   const box = (on, label) => '<span class="chk">' + (on ? '☑' : '☐') + ' ' + label + '</span>';
 
   const inner =
@@ -656,18 +736,18 @@ function sheetHtml(c, bare) {
       box(true, '電話') + box(false, '窓口') + box(false, '訪問') + '</div></div>' +
 
     '<div class="sec">■ 依頼者の情報</div>' +
-    row('氏名', f.name) + row('電話番号', f.tel) + row('住所', f.addr) +
+    row('氏名', f.name, 'name') + row('電話番号', f.tel, 'tel') + row('住所', f.addr, 'addr') +
 
     '<div class="sec">■ 依頼内容</div>' +
-    '<div class="free">' +
-      (f.state ? esc(f.state) : '<span class="v blank">（未確認）</span>') +
-      (f.when ? '<br>' + esc(f.when) : '') +
+    '<div class="free" data-slot="state">' +
+      (f.state ? '<span class="ink">' + esc(f.state) + (f.when ? '<br>' + esc(f.when) : '') + '</span>'
+               : '<span class="v blank">（未確認）</span>') +
     '</div>' +
 
     '<div class="sec">■ 現地の様子・補足メモ</div>' +
-    '<div class="free">' +
+    '<div class="free" data-slot="memo">' +
       (S.sheet.memo.length
-        ? '<ul>' + S.sheet.memo.map(m => '<li>' + esc(m) + '</li>').join('') + '</ul>'
+        ? '<span class="ink"><ul>' + S.sheet.memo.map(m => '<li>' + esc(m) + '</li>').join('') + '</ul></span>'
         : '<span class="v blank">（記載なし）</span>') +
     '</div>' +
 
@@ -701,7 +781,12 @@ function needsForm(idx) {
     '</div></div>' +
     '<div class="grp"><div class="gh">依頼者情報</div><div class="gb">' +
       '<div class="fld" id="f_req"><label>依頼者<span class="req">必須</span></label>' +
-        '<div class="lookup"><input type="text" id="i_req" placeholder="お名前を入力して「取得」を押す">' +
+        copyBox('i_req', '依頼者の氏名を書き写す',
+          '受付シートの氏名を、そのまま書き写します。<br>' +
+          'そのあと<b>「取得」</b>を押すと、名簿アプリから電話番号・住所・種別が自動で入ります。<br>' +
+          '<b>名簿にない方は「取得」できません。</b>その場合は先に名簿へ登録します。',
+          S.sheet.fields.name || c.requester) +
+        '<div class="lookup"><input type="text" id="i_req" placeholder="上のボタンで書き写します">' +
         '<button class="btn btn-sm" onclick="doLookup()">取得</button>' +
         '<button class="btn-gray btn-sm" onclick="clearLookup()">クリア</button></div>' +
         '<div id="lookmsg" class="hint"></div><div class="errmsg"></div></div>' +
@@ -711,11 +796,14 @@ function needsForm(idx) {
         '<div class="hint">名簿アプリの「種別」が自動で入ります。変更するときは名簿側を直します。</div></div>' +
     '</div></div>' +
     '<div class="fld" id="f_body"><label>依頼内容<span class="req">必須</span></label>' +
-      samples(c.bodySamples || [], 'i_body') +
-      '<textarea id="i_body" placeholder="次の班（現地調査班）が読んで判断できるように書きます"></textarea>' +
-      '<div class="hint">この文章だけを見て、現地調査班は現場へ向かいます。</div>' +
+      copyBox('i_body', '依頼内容を書き写す',
+        '<b>聞いたことを省略せずに書きます。</b>この文章だけを見て、現地調査班は現場へ向かいます。<br>' +
+        '「泥の撤去」だけでは、どこが・どれくらい・誰が困っているのかが伝わりません。<br>' +
+        '<b>感想や自分の意見は書きません。</b>「かわいそうなので急いだほうがいい」は、判断材料になりません。',
+        (S.sheet.fields.state || c.modelText) +
+        (S.sheet.memo.length ? ' ' + S.sheet.memo.join(' ') : '')) +
+      '<textarea id="i_body" placeholder="上のボタンで、受付シートから書き写します"></textarea>' +
       '<div class="errmsg"></div></div>';
-  SAMPLE_SETS['i_body'] = c.bodySamples || [];
 
   show(
     navi('電話が終わりました。ここからは<b>左の受付シートを見ながら</b>、kintoneに入力します。<br>' +
@@ -1017,7 +1105,9 @@ function sceneSurvey(i, desk) {
       optsHtml('o_cat', ['土砂撤去', '荷物運び出し', '清掃', 'その他'], true) + '<div class="errmsg"></div></div>' +
     '<div class="fld" id="f_ppl"><label>必要人数等<span class="req">必須</span></label>' +
       optsHtml('o_ppl', CONFIG.PEOPLE_CHOICES, false) +
-      '<div class="hint">何人で行けば終わりそうか。<b>決まった正解はありません。</b></div>' +
+      '<div class="hint">何人で行けば終わりそうか。<b>決まった正解はありません。</b><br>' +
+      '<span style="color:#3f5e73">※ 本番のkintoneでは、この欄は自由に文字を入力します。' +
+      'ここでは選ぶだけにしています。</span></div>' +
       '<div class="errmsg"></div></div>' +
     '<div class="fld" id="f_eq"><label>資機材等<span class="req">必須</span></label>' +
       optsHtml('o_eq', CONFIG.EQUIPMENT, true) +
@@ -1026,11 +1116,12 @@ function sceneSurvey(i, desk) {
       optsHtml('o_cri', ['必要あり'], true) +
       '<div class="hint">生命や生活が今すぐ脅かされている方は、ここにチェックを入れて優先します。</div></div>' +
     '<div class="fld"><label>特記事項・メモ</label>' +
-      samples(CONFIG.MEMO_SAMPLES, 'i_memo') +
-      '<textarea id="i_memo" placeholder="必要人数や資機材を、なぜその見立てにしたのか"></textarea>' +
-      '<div class="hint">人数に決まった正解はありません。だからこそ、<b>そう判断した理由</b>を残しておくと、' +
-      '資機材班とマッチング班が現場に合わせて増減を判断できます。</div></div>';
-  SAMPLE_SETS['i_memo'] = CONFIG.MEMO_SAMPLES;
+      copyBox('i_memo', '見立てた理由を書く',
+        '人数や資機材に<b>決まった正解はありません</b>。だからこそ、<b>そう判断した理由</b>を残します。<br>' +
+        '「4名」とだけ書かれていても、資機材班もマッチング班も、増やしていいのか減らしていいのか判断できません。<br>' +
+        '「泥の搬出先まで距離があり、2人1組で一輪車を往復させるため」——ここまで書いてあれば、次の班が動けます。',
+        sv.memoTip || '') +
+      '<textarea id="i_memo" placeholder="上のボタンで書き写します"></textarea></div>';
 
   show(
     (desk
@@ -1233,7 +1324,6 @@ function sceneOrientation() {
       '<p class="muted">' + O.VIDEO_NOTE + '</p>' +
       '<div class="screen" id="screen">' +
         '<div class="scr-title">' + esc(O.VIDEO_TITLE) + '</div>' +
-        '<div class="scr-len">' + esc(O.VIDEO_LEN) + '</div>' +
         '<button class="scr-play" id="playBtn" onclick="playVideo()">▶</button>' +
         '<div class="scr-bar"><div id="scrBar"></div></div>' +
       '</div>' +
@@ -1780,7 +1870,6 @@ function sceneReport() {
 let reportLinked = true;
 function openReport(viaAction) {
   reportLinked = true;
-  SAMPLE_SETS['i_rep'] = CONFIG.REPORT_SAMPLES;
   const n = S.needs.find(x => S.vols.some(v => v.assignedTo === x.id)) || S.needs[0];
   const members = S.vols.filter(v => v.assignedTo === n.id).map(v => v.name);
 
@@ -1796,9 +1885,13 @@ function openReport(viaAction) {
       '<div class="fld"><label>報告者</label><input type="text" class="readonly" readonly value="' + esc(members[0] || '') + '"></div>' +
       '<div class="fld"><label>活動人数</label><input type="text" class="readonly" readonly value="' + members.length + '名"></div>' +
       '<div class="fld" id="f_rep"><label>報告内容<span class="req">必須</span></label>' +
-        samples(CONFIG.REPORT_SAMPLES, 'i_rep') +
-        '<textarea id="i_rep" placeholder="紙の報告書の内容と、口頭で聞き取った内容を入力します"></textarea>' +
-        '<div class="hint">口頭でしか出てこない情報（次回への申し送り、ご本人の様子など）も忘れずに。</div>' +
+        copyBox('i_rep', '紙の報告書＋口頭の報告を書き写す',
+          '<b>紙に書かれていることだけを写すのでは足りません。</b><br>' +
+          'ボランティアが口で言ったことにこそ、翌日の判断材料があります。<br>' +
+          '「押し入れの奥がまだ濡れている」「田中さんは水が出なくて洗い物ができない」——' +
+          'これは紙の報告書には出てきません。<b>聞いたその場で書き残さないと、消えます。</b>',
+          '土砂の撤去を行い、土のう袋20袋を搬出。押し入れの奥がまだ濡れており、本日は未着手のため翌日に継続。ご本人は断水で洗い物ができないと話されていた。') +
+        '<textarea id="i_rep" placeholder="上のボタンで書き写します"></textarea>' +
         '<div class="errmsg"></div></div>' +
       '<div class="fld" id="f_prg"><label>進捗状況<span class="req">必須</span></label>' +
         optsHtml('o_prg', ['継続', '完了'], false) + '<div class="errmsg"></div></div>',
