@@ -128,6 +128,7 @@ function afRun(steps, doneMsg, doneLabel, doneFn) {
 function afNext() {
   if (!AF) return;
   afClearCallout();
+  clearFinger();            // 入力中は指を消す（前の吹き出しの指が残らないように）
   if (AF.i >= AF.steps.length) return afFinish();
   const s = AF.steps[AF.i++];
   const el  = s.sel ? $(s.sel) : null;
@@ -146,13 +147,16 @@ function afNext() {
     setTimeout(afNext, s.pause || 700);          // 説明のない項目だけ自動で進む
   };
 
-  if (s.type === 'opt') {
+  if (s.run) {
+    s.run();                                     // 写真の撮影など、値の入力以外の動き
+    setTimeout(after, 450);
+  } else if (s.type === 'opt') {
     (s.values || [s.value]).forEach(v => {
       const o = document.querySelector(s.sel + ' .opt[data-v="' + v + '"]');
       if (o) o.click();
     });
     setTimeout(after, 350);
-  } else if (el) {
+  } else if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
     typeInto(el, String(s.value == null ? '' : s.value), after);
   } else {
     setTimeout(after, 350);                      // 説明だけのステップ
@@ -177,6 +181,24 @@ function afCallout(s, fld) {
   if (co) co.scrollIntoView({ behavior: 'smooth', block: 'center' });
   setTimeout(autoPoint, 300);
 }
+/* すべて入力し終わったとき。次へ進むボタンを出して、そこまでスクロールします */
+function afFinish() {
+  const a = AF; AF = null;
+  const log = $('#aflog');
+  if (log) {
+    log.insertAdjacentHTML('beforeend', '<div class="af-done fade">✓ ' + a.doneMsg + '</div>');
+    log.scrollTop = log.scrollHeight;
+  }
+  const b = $('#afStart');
+  if (b) {
+    b.disabled = false;
+    b.textContent = a.doneLabel;
+    b.onclick = a.doneFn;
+    b.scrollIntoView({ behavior: 'smooth', block: 'center' });   // ボタンを画面に出す
+  }
+  setTimeout(autoPoint, 800);
+}
+
 function afClearCallout() {
   const co = document.getElementById('afco');
   if (co) co.remove();
@@ -1000,7 +1022,29 @@ function goSurvey(i) {
   const n = S.needs[i];
   if (n.surveyNeeded === '不要') return sceneSurvey(i, true);
   if (n.surveyNeeded !== '必要' && !n.chiefAsked) return sceneAskChief(i);
-  return sceneSurvey(i, false);
+  return sceneSurveyBrief(i);
+}
+
+/* 現地へ出る前に、気をつけることを確認します */
+function sceneSurveyBrief(i) {
+  const n = S.needs[i];
+  setTop(CONFIG.TIMES.survey, '現地調査（出発前）', '現地調査班');
+  show(
+    navi('これから<b>' + esc(n.requester) + 'さんのお宅</b>へ向かいます。<br>' +
+         '現地調査は、職員が被災された方のお宅に上がる数少ない場面です。<br>' +
+         '<span class="muted">ここでの振る舞いが、そのまま社協の信用になります。</span>') +
+    '<div class="panel" style="background:#f6f8f8">' +
+      '<p style="margin:0 0 6px"><b>ニーズID ' + n.id + '　' + esc(n.requester) + 'さん</b>　' + esc(n.addr) + '</p>' +
+      '<p class="muted" style="margin:0">' + esc(n.body) + '</p>' +
+    '</div>' +
+    '<div class="panel">' +
+      '<h2>現地調査で気をつけること</h2>' +
+      CONFIG.SURVEY_CAUTIONS.map((c, k) =>
+        '<div class="caution"><div class="ct"><span class="cn">' + (k + 1) + '</span>' + esc(c.t) + '</div>' +
+        '<div class="cd">' + c.d + '</div></div>').join('') +
+      '<button class="btn btn-lg" style="margin-top:16px" onclick="sceneSurvey(' + i + ',false)">調査をする</button>' +
+    '</div>'
+  );
 }
 
 /* 「判断できない（要相談）」… 班長に相談する */
@@ -1048,7 +1092,8 @@ function sceneSurvey(i, desk) {
         '<div style="background:#f6f8f8;border:1px dashed #c9d1d4;border-radius:6px;padding:11px;font-size:1rem;color:#6b7a80">' +
         '現地調査を行っていないため、現場の写真も、現地での聞き取りもありません。<br>' +
         '<b>電話で聞き取った内容だけ</b>が手がかりです。</div></div>'
-      : '<div class="fld"><label>写真</label>' + SCENES[sv.scene] + '</div>' +
+      : '<div class="fld"><label>写真</label>' +
+        '<div id="photoBox" class="photobox">まだ撮影していません</div></div>' +
         '<div class="fld"><label>現地で聞き取った内容</label>' +
         '<div style="background:#fbfaf5;border:1px dashed #d8cdb4;border-radius:6px;padding:11px;font-size:1rem">' + esc(sv.memo) + '</div></div>') +
     '<hr class="sep">' +
@@ -1063,8 +1108,8 @@ function sceneSurvey(i, desk) {
     (desk
       ? navi('このニーズは<b>現地調査を「不要」</b>と判断しました。現場には行かず、' +
              '電話で聞き取った内容だけで<b>必要人数</b>と<b>資機材</b>を決めます。')
-      : navi('現場に着きました。<b>現地調査の結果を、その場でスマホからkintoneに入力します。</b><br>' +
-             '<span class="muted">写真と聞き取りの内容から、何をどう判断して入力するのかを見てください。</span>')) +
+      : navi('現場に着きました。<b>写真を撮り、状況を確認して、その場でスマホからkintoneに入力します。</b><br>' +
+             '<span class="muted">何をどう判断して入力するのかを、1項目ずつ見てください。</span>')) +
     '<div style="max-width:430px;margin:0 auto">' +
       '<p class="muted center">' + (desk ? '🖥 センターで入力しています' : '📱 スマホから入力しています') + '</p>' +
       afPanel('現地調査の結果を入力する') +
@@ -1080,7 +1125,19 @@ function surveySteps(i, desk) {
   const n = S.needs[i], sv = n.call.survey;
   const src = desk ? 'talk' : 'field';
   const seen = desk ? '電話で聞き取った内容から' : '現場を見て';
-  return [
+  const steps = [];
+
+  if (!desk) {
+    steps.push({ sel: '#photoBox', src: 'field', label: '写真を撮影して添付',
+      run: function () { const b = $('#photoBox'); if (b) { b.className = ''; b.innerHTML = SCENES[sv.scene]; } },
+      say: '<b>「記録のために写真を撮らせていただいてよろしいですか」</b>とひと言断ってから撮ります。<br>' +
+           '被害の範囲が分かるように、引きの写真と寄りの写真を複数枚。' +
+           'この写真を見て、マッチング班と資機材班が人数と道具を決めます。<br>' +
+           '<span class="muted">撮った写真は災害VC内の判断にだけ使い、SNSなどには載せません。</span>',
+      pause: 900 });
+  }
+
+  steps.push.apply(steps, [
     { sel: '#o_dmg', type: 'opt', values: sv.damage, src: src,
       label: '被災状況：' + sv.damage.join('・'),
       say: seen + '判断します。浸水の深さは、後の資機材の量に直結します。' },
@@ -1108,7 +1165,8 @@ function surveySteps(i, desk) {
       label: '特記事項・メモ',
       say: '人数や資機材に正解がないからこそ、<b>そう判断した理由</b>を残します。<br>' +
            '「4名」とだけ書いてあっても、資機材班もマッチング班も、増やしていいのか減らしていいのか判断できません。', pause: 900 }
-  ];
+  ]);
+  return steps;
 }
 
 function saveSurvey(i) {
@@ -2164,7 +2222,7 @@ function updateBackBtn() {
 /* 対象のシーンを包んで、入るたびに状態を控える */
 const SCENES_WITH_HISTORY = [
   'sceneIntro', 'scenePortal', 'sceneCall', 'sceneIntake', 'sceneEscalate', 'needsForm',
-  'sceneSurveyIntro', 'sceneAskChief', 'sceneSurvey', 'sceneRecept', 'sceneOrientation',
+  'sceneSurveyIntro', 'sceneAskChief', 'sceneSurveyBrief', 'sceneSurvey', 'sceneRecept', 'sceneOrientation',
   'sceneMatching', 'sceneMatchReview', 'sceneSendoff', 'sceneEvent', 'sceneReturn',
   'sceneReport', 'openReport', 'sceneCerts', 'certForm', 'sceneRoadCert', 'roadTrouble', 'sceneResult'
 ];

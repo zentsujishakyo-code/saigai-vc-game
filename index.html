@@ -383,6 +383,21 @@ button:disabled{opacity:.4;cursor:not-allowed;}
   50%{transform:translate(-7px,-8px);}
 }
 
+/* 現地調査の注意点 */
+.caution{border-left:4px solid var(--orange);padding:9px 0 9px 13px;margin-bottom:11px;}
+.caution .ct{font-weight:bold;font-size:1rem;margin-bottom:3px;display:flex;align-items:center;gap:8px;}
+.caution .cn{
+  flex:0 0 22px;height:22px;border-radius:50%;background:var(--orange);color:#fff;
+  font-size:.8rem;display:flex;align-items:center;justify-content:center;
+}
+.caution .cd{font-size:.92rem;color:#4f5f66;}
+
+/* 写真の欄（撮影前） */
+.photobox{
+  border:1px dashed #c9d1d4;border-radius:6px;background:#f6f8f8;
+  padding:26px 12px;text-align:center;color:var(--sub);font-size:.92rem;
+}
+
 /* ===== 自動入力を「見せる」 ===== */
 .af{background:#eef4f8;border:1px solid #c3d8e5;border-radius:8px;padding:11px 12px;margin-bottom:12px;}
 .af-head{font-size:.85rem;font-weight:bold;color:#2b6088;margin-bottom:7px;}
