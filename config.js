@@ -45,12 +45,12 @@ const CONFIG = {
       title: "画面の色で、3つを見分けてください",
       body: "災害VCの仕事は、<b>紙</b>と<b>パソコン</b>と<b>口頭</b>が入りまじります。" +
             "このゲームでは、枠の色で見分けられるようにしています。<br><br>" +
-            "<span style='display:block;border-left:6px solid #2b6088;background:#eaf1f6;padding:8px 11px;margin-bottom:7px'>" +
+            "<span style='display:block;border-left:8px solid #1565c0;background:#e7f0fb;padding:8px 11px;margin-bottom:7px'>" +
             "<b>💻 青い枠 ＝ kintone アプリ</b><br>パソコンやスマホで入力します。<b>入力すると記録が残り、他の班が見られます。</b></span>" +
-            "<span style='display:block;border-left:6px solid #8a7442;background:#f6efdd;padding:8px 11px;margin-bottom:7px'>" +
-            "<b>📄 茶色い枠 ＝ 紙の書類</b><br>電話を聞きながら手書きしたり、印刷して手渡したりします。</span>" +
-            "<span style='display:block;border-left:6px solid #41545c;background:#e7ecee;padding:8px 11px'>" +
-            "<b>🗣 濃紺の枠 ＝ 口頭でのやりとり</b><br>電話や会話です。<b>このままでは記録に残りません。</b>" +
+            "<span style='display:block;border-left:8px solid #a8670e;background:#fdf6e6;padding:8px 11px;margin-bottom:7px'>" +
+            "<b>📄 オレンジ色の枠 ＝ 紙の書類</b><br>電話を聞きながら手書きしたり、印刷して手渡したりします。</span>" +
+            "<span style='display:block;border-left:8px solid #5b2d86;background:#f2ebfa;padding:8px 11px'>" +
+            "<b>🗣 紫色の枠 ＝ 口頭でのやりとり</b><br>電話や会話です。<b>このままでは記録に残りません。</b>" +
             "聞いたことを紙やkintoneに書き写すのが、みなさんの仕事です。</span>"
     },
     {

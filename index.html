@@ -19,6 +19,10 @@
   --red:#e74c3c;
   --green:#27ae60;
   --navy:#41545c;
+  /* 媒体の3色。色相を大きく離して、ひと目で見分けられるようにしています */
+  --kin:#1565c0;      --kin-bg:#e7f0fb;    /* 💻 kintone ＝ 青   */
+  --paper:#a8670e;    --paper-bg:#fdf6e6;  /* 📄 紙       ＝ 琥珀 */
+  --talk:#5b2d86;     --talk-bg:#f2ebfa;   /* 🗣 口頭     ＝ 紫   */
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{margin:0;padding:0;}
@@ -137,35 +141,35 @@ button:disabled{opacity:.4;cursor:not-allowed;}
    初めての人が「これは紙？パソコンの画面？口で言うだけ？」で
    迷わないよう、3つを色と見出しではっきり分けています。
      青い枠  … kintoneアプリ（記録が残る）
-     茶色い枠… 紙の書類（手書き・印刷して渡す）
-     濃紺の枠… 口頭でのやりとり（記録は残らない）
+     橙色の枠… 紙の書類（手書き・印刷して渡す）
+     紫色の枠… 口頭でのやりとり（記録は残らない）
    ============================================================ */
 .kin::before{
   content:"💻 kintone アプリ　―　入力すると記録が残ります";
-  display:block;background:#2b6088;color:#fff;
+  display:block;background:var(--kin);color:#fff;
   font-size:.8rem;font-weight:bold;padding:5px 12px;letter-spacing:.03em;
 }
 .sheet::before{
   content:"📄 紙の書類　―　手書きで記入します";
-  display:block;background:#8a7442;color:#fff;
+  display:block;background:var(--paper);color:#fff;
   font-size:.8rem;font-weight:bold;padding:5px 10px;letter-spacing:.03em;
   margin:-14px -14px 12px;
 }
 .doc::before{
   content:"📄 紙の書類　―　印刷して手渡します";
-  display:block;background:#8a7442;color:#fff;
+  display:block;background:var(--paper);color:#fff;
   font-size:.8rem;font-weight:bold;padding:5px 10px;letter-spacing:.03em;
   margin:-18px -18px 14px;
 }
 .phone::before{
   content:"🗣 口頭でのやりとり　―　このままでは記録に残りません";
-  display:block;font-size:.8rem;opacity:.6;margin-bottom:9px;letter-spacing:.03em;
+  display:block;font-size:.8rem;opacity:.75;margin-bottom:9px;letter-spacing:.03em;
   position:relative;
 }
 .sheetov-body .sheet::before{margin:-12px -12px 12px;}
 
 /* ===== kintone風 ===== */
-.kin{background:#fff;border:2px solid #9cb9cf;border-radius:8px;overflow:hidden;margin-bottom:14px;}
+.kin{background:var(--kin-bg);border:3px solid var(--kin);border-radius:8px;overflow:hidden;margin-bottom:14px;}
 .kin-head{
   background:#f4f6f7;border-bottom:1px solid var(--line);
   padding:9px 14px;display:flex;align-items:center;gap:10px;
@@ -181,7 +185,7 @@ button:disabled{opacity:.4;cursor:not-allowed;}
   background:var(--blue);color:#fff;font-size:19px;line-height:1;
   display:flex;align-items:center;justify-content:center;
 }
-.kin-body{padding:16px 14px;}
+.kin-body{padding:16px 14px;background:#fff;}
 .kin-foot{border-top:1px solid var(--line2);background:#fafbfb;padding:12px 14px;display:flex;gap:10px;justify-content:center;}
 
 /* フィールド */
@@ -192,7 +196,7 @@ button:disabled{opacity:.4;cursor:not-allowed;}
   width:100%;padding:8px 10px;border:1px solid #c9d1d4;border-radius:4px;
   font-family:inherit;font-size:15px;background:#fff;color:var(--text);
 }
-.fld textarea{min-height:78px;resize:vertical;line-height:1.6;}
+.fld textarea{min-height:78px;resize:vertical;line-height:1.6;overflow:hidden;}
 .fld input:focus,.fld textarea:focus,.fld select:focus{outline:2px solid var(--blue);outline-offset:-1px;border-color:var(--blue);}
 .fld.err input,.fld.err textarea,.fld.err .opts{border-color:var(--red);background:#fff6f5;}
 .fld .errmsg{color:var(--red);font-size:12px;margin-top:4px;display:none;}
@@ -269,7 +273,7 @@ button:disabled{opacity:.4;cursor:not-allowed;}
 
 /* 電話 */
 .phone{
-  background:var(--navy);color:#fff;border-radius:10px;padding:16px 18px;margin-bottom:14px;
+  background:var(--talk);color:#fff;border:3px solid #3f1e63;border-radius:10px;padding:16px 18px;margin-bottom:14px;
   position:relative;overflow:hidden;
 }
 .phone .psil{
@@ -305,7 +309,7 @@ button:disabled{opacity:.4;cursor:not-allowed;}
 .modal h3{margin:0 0 12px;font-size:17px;}
 
 /* 活動依頼書プレビュー */
-.doc{border:1px solid #999;padding:18px;font-size:12.5px;background:#fff;line-height:1.9;}
+.doc{border:3px solid var(--paper);padding:18px;font-size:12.5px;background:#fff;line-height:1.9;}
 .doc h4{text-align:center;margin:0 0 14px;font-size:16px;letter-spacing:3px;}
 .doc table{width:100%;border-collapse:collapse;}
 .doc td{border:1px solid #aaa;padding:5px 8px;}
@@ -316,7 +320,7 @@ button:disabled{opacity:.4;cursor:not-allowed;}
 .split .sheetcol{flex:0 0 320px;position:sticky;top:64px;}
 .split .formcol{flex:1 1 340px;min-width:0;}
 .sheet{
-  background:#fffdf7;border:2px solid #bda978;border-radius:4px;padding:14px;overflow:hidden;
+  background:#fffdf7;border:3px solid var(--paper);border-radius:4px;padding:14px;overflow:hidden;
   font-size:12.5px;line-height:1.75;
   box-shadow:2px 2px 0 rgba(0,0,0,.05);
 }
@@ -399,11 +403,11 @@ button:disabled{opacity:.4;cursor:not-allowed;}
 }
 
 /* ===== 自動入力を「見せる」 ===== */
-.af{background:#eef4f8;border:1px solid #c3d8e5;border-radius:8px;padding:11px 12px;margin-bottom:12px;}
-.af-head{font-size:.85rem;font-weight:bold;color:#2b6088;margin-bottom:7px;}
+.af{background:var(--kin-bg);border:1px solid #a9c8e8;border-radius:8px;padding:11px 12px;margin-bottom:12px;}
+.af-head{font-size:.85rem;font-weight:bold;color:var(--kin);margin-bottom:7px;}
 .af-log{max-height:230px;overflow:auto;}
 .af-line{
-  background:#fff;border-left:4px solid #7fa8c4;border-radius:0 5px 5px 0;
+  background:#fff;border-left:4px solid var(--kin);border-radius:0 5px 5px 0;
   padding:7px 10px;margin-bottom:6px;font-size:.9rem;
 }
 .af-say{font-size:.86rem;color:#4a6675;margin-top:3px;}
@@ -411,10 +415,10 @@ button:disabled{opacity:.4;cursor:not-allowed;}
   display:inline-block;font-size:.75rem;font-weight:bold;border-radius:9px;
   padding:1px 8px;margin-right:7px;vertical-align:1px;
 }
-.af-src.s-sheet{background:#efe3c4;color:#7d6a3c;}
-.af-src.s-roster{background:#dbe9f2;color:#2b6088;}
-.af-src.s-field{background:#e2eee5;color:#3f7a54;}
-.af-src.s-talk{background:#dfe4e6;color:#4a5a60;}
+.af-src.s-sheet{background:#f6e6c2;color:#7a4b06;}
+.af-src.s-roster{background:#d7e6f8;color:#0f4c94;}
+.af-src.s-field{background:#dcf0e2;color:#1f6b3a;}
+.af-src.s-talk{background:#e8dcf6;color:#4a1f77;}
 .af-src.s-auto{background:#eceff0;color:#7b8a8f;}
 .fld.filling{
   background:#fff8e4;border-radius:6px;
@@ -443,7 +447,7 @@ button:disabled{opacity:.4;cursor:not-allowed;}
 
 /* ===== 受付シートから書き写すボタン ===== */
 .copybox{
-  background:#fdf6e8;border:1px dashed #d6c69b;border-radius:6px;
+  background:var(--paper-bg);border:1px dashed #d6c69b;border-radius:6px;
   padding:9px 11px;margin-bottom:8px;
 }
 .copybtn{
@@ -510,7 +514,7 @@ button:disabled{opacity:.4;cursor:not-allowed;}
 }
 @keyframes slideup{from{transform:translateY(30px);opacity:.4;}to{transform:none;opacity:1;}}
 .sheetov-head{
-  background:var(--navy);color:#fff;padding:11px 14px;font-weight:bold;
+  background:var(--paper);color:#fff;padding:11px 14px;font-weight:bold;
   display:flex;align-items:center;justify-content:space-between;gap:10px;flex:0 0 auto;
 }
 .sheetov-body{overflow:auto;padding:12px;-webkit-overflow-scrolling:touch;}

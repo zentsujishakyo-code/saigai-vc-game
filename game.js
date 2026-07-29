@@ -56,7 +56,8 @@ function show(html) {
   clearFinger();
   app().innerHTML = '<div class="fade">' + html + '</div>';
   window.scrollTo(0, 0);
-  setTimeout(autoPoint, 60);
+  growAll();
+  setTimeout(function () { growAll(); autoPoint(); }, 60);
 }
 function navi(text) {
   return '<div class="navi"><div class="face">' + sil('staff') + '</div><div class="say">' + text + '</div></div>';
@@ -205,6 +206,14 @@ function afClearCallout() {
   if (AF && AF.cur && AF.cur.fld) AF.cur.fld.classList.remove('filling');
 }
 
+/* 文章の欄を、中身が全部見える高さに広げます（スクロールさせない） */
+function grow(el) {
+  if (!el || el.tagName !== 'TEXTAREA') return;
+  el.style.height = 'auto';
+  el.style.height = (el.scrollHeight + 6) + 'px';
+}
+function growAll() { $$('textarea').forEach(grow); }
+
 /* 1文字ずつ入っていくように見せる */
 function typeInto(el, text, done) {
   el.value = '';
@@ -215,8 +224,8 @@ function typeInto(el, text, done) {
   const t = setInterval(() => {
     i += 1;
     el.value = text.slice(0, i);
-    el.scrollTop = el.scrollHeight;
-    if (i >= text.length) { clearInterval(t); el.value = text; if (done) setTimeout(done, 250); }
+    grow(el);
+    if (i >= text.length) { clearInterval(t); el.value = text; grow(el); if (done) setTimeout(done, 250); }
   }, sp);
 }
 
@@ -240,9 +249,13 @@ function pointAt(el) {
   if (r.width === 0) return;
   const d = document.createElement('div');
   d.id = 'finger'; d.className = 'finger'; d.textContent = '👆';
-  d.style.left = (r.right + window.scrollX - 16) + 'px';
-  d.style.top  = (r.bottom + window.scrollY - 8) + 'px';
+  d.style.left = '0px'; d.style.top = '0px';
   document.body.appendChild(d);
+  // 画面の右端からはみ出して横スクロールが出ないように、内側に丸める
+  const w = d.getBoundingClientRect().width || 34;
+  const maxLeft = document.documentElement.clientWidth - w - 2;
+  d.style.left = Math.max(0, Math.min(r.right + window.scrollX - 16, maxLeft)) + 'px';
+  d.style.top  = (r.bottom + window.scrollY - 8) + 'px';
 }
 /* いま押すべきものを、上から順に探します */
 /* 指を出すのは「次に進むための1つのボタン」だけ。
