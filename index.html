@@ -237,6 +237,20 @@ button:disabled{opacity:.4;cursor:not-allowed;}
 .b-green{background:#e6f5ed;color:var(--green);}
 .b-gray{background:#eef1f2;color:var(--sub);}
 
+/* ポータル（6アプリを説明つきで並べる） */
+.applist{
+  display:flex;gap:12px;align-items:flex-start;
+  padding:12px 0;border-bottom:1px solid var(--line2);
+}
+.applist:last-of-type{border-bottom:none;}
+.applist .ic{
+  flex:0 0 46px;height:46px;border-radius:8px;background:var(--orange);color:#fff;
+  font-size:.6rem;line-height:1.15;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:3px;white-space:pre-line;
+}
+.applist .tx{flex:1;font-size:.95rem;}
+.applist .ds{font-size:.88rem;color:#5a6a70;margin-top:3px;}
+
 /* ポータル */
 .portal{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
 .pcard{
@@ -367,6 +381,33 @@ button:disabled{opacity:.4;cursor:not-allowed;}
 @keyframes fingertap{
   0%,100%{transform:translate(0,0);}
   50%{transform:translate(-7px,-8px);}
+}
+
+/* ===== 自動入力を「見せる」 ===== */
+.af{background:#eef4f8;border:1px solid #c3d8e5;border-radius:8px;padding:11px 12px;margin-bottom:12px;}
+.af-head{font-size:.85rem;font-weight:bold;color:#2b6088;margin-bottom:7px;}
+.af-log{max-height:230px;overflow:auto;}
+.af-line{
+  background:#fff;border-left:4px solid #7fa8c4;border-radius:0 5px 5px 0;
+  padding:7px 10px;margin-bottom:6px;font-size:.9rem;
+}
+.af-say{font-size:.86rem;color:#4a6675;margin-top:3px;}
+.af-src{
+  display:inline-block;font-size:.75rem;font-weight:bold;border-radius:9px;
+  padding:1px 8px;margin-right:7px;vertical-align:1px;
+}
+.af-src.s-sheet{background:#efe3c4;color:#7d6a3c;}
+.af-src.s-roster{background:#dbe9f2;color:#2b6088;}
+.af-src.s-field{background:#e2eee5;color:#3f7a54;}
+.af-src.s-talk{background:#dfe4e6;color:#4a5a60;}
+.af-src.s-auto{background:#eceff0;color:#7b8a8f;}
+.fld.filling{
+  background:#fff8e4;border-radius:6px;
+  box-shadow:0 0 0 3px #f7d98a;transition:box-shadow .2s;
+}
+.af-done{
+  background:#e6f5ed;border:1px solid #b6dcc6;color:#2c6b46;
+  border-radius:6px;padding:9px 12px;margin-top:8px;font-size:.92rem;font-weight:bold;
 }
 
 /* ===== 受付シートから書き写すボタン ===== */

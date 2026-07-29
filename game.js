@@ -90,6 +90,95 @@ function picked(id) { return $$('#' + id + ' .opt.on').map(o => o.dataset.v); }
 function pick1(id)  { const a = picked(id); return a.length ? a[0] : ''; }
 
 /* ============================================================
+   kintoneへの入力を「見せる」しくみ
+   ------------------------------------------------------------
+   プレイヤーに文字を打たせず、1項目ずつ順番に入っていく様子を
+   見せます。どの欄が「どこから来た値なのか」も一緒に出します。
+     📄 受付シート … 紙から書き写した
+     💻 名簿 / 当日受付 … 別のアプリから自動で入った
+     🔍 現地調査 … 現場で確認した
+     ⚙ 自動 … システムが自動で入れた
+   ============================================================ */
+let AF = null;
+
+function afSrcTag(src) {
+  const m = { sheet: '📄 受付シート', roster: '💻 名簿アプリ', recept: '💻 当日受付', field: '🔍 現地で確認', talk: '🗣 口頭の報告', auto: '⚙ 自動' };
+  return '<span class="af-src s-' + (src || 'auto') + '">' + (m[src] || m.auto) + '</span>';
+}
+
+/* 入力の様子を出す枠と、開始ボタン */
+function afPanel(startLabel) {
+  return '<div class="af">' +
+    '<div class="af-head">💻 kintoneに入力される内容</div>' +
+    '<div class="af-log" id="aflog"><p class="muted" style="margin:0">' +
+      '下のボタンを押すと、1項目ずつ入力されていく様子が見られます。</p></div>' +
+    '<button class="btn btn-lg" id="afStart" style="margin-top:10px">' + esc(startLabel) + '</button>' +
+    '</div>';
+}
+
+function afRun(steps, doneMsg, doneLabel, doneFn) {
+  AF = { steps: steps, i: 0, doneMsg: doneMsg, doneLabel: doneLabel, doneFn: doneFn };
+  const b = $('#afStart');
+  if (b) { b.disabled = true; b.textContent = '入力中…'; }
+  $('#aflog').innerHTML = '';
+  clearFinger();
+  afNext();
+}
+
+function afNext() {
+  if (!AF) return;
+  if (AF.i >= AF.steps.length) return afFinish();
+  const s = AF.steps[AF.i++];
+  const el  = s.sel ? $(s.sel) : null;
+  const fld = el ? el.closest('.fld') : null;
+
+  $('#aflog').insertAdjacentHTML('beforeend',
+    '<div class="af-line fade">' + afSrcTag(s.src) + '<b>' + esc(s.label) + '</b>' +
+    (s.say ? '<div class="af-say">' + s.say + '</div>' : '') + '</div>');
+  const log = $('#aflog'); if (log) log.scrollTop = log.scrollHeight;
+  if (fld) { fld.classList.add('filling'); fld.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+
+  const after = () => {
+    if (fld) setTimeout(() => fld.classList.remove('filling'), 350);
+    setTimeout(afNext, s.pause || 620);
+  };
+
+  if (s.type === 'opt') {
+    (s.values || [s.value]).forEach(v => {
+      const o = document.querySelector(s.sel + ' .opt[data-v="' + v + '"]');
+      if (o) o.click();
+    });
+    after();
+  } else if (el) {
+    typeInto(el, String(s.value == null ? '' : s.value), after);
+  } else {
+    after();                       // 説明だけのステップ
+  }
+}
+
+function afFinish() {
+  const a = AF; AF = null;
+  $('#aflog').insertAdjacentHTML('beforeend', '<div class="af-done fade">✓ ' + a.doneMsg + '</div>');
+  const log = $('#aflog'); if (log) log.scrollTop = log.scrollHeight;
+  const b = $('#afStart');
+  if (b) { b.disabled = false; b.textContent = a.doneLabel; b.onclick = a.doneFn; }
+  setTimeout(autoPoint, 200);
+}
+
+/* 1文字ずつ入っていくように見せる */
+function typeInto(el, text, done) {
+  el.value = '';
+  let i = 0;
+  const sp = Math.max(6, Math.min(22, 620 / Math.max(1, text.length)));
+  const t = setInterval(() => {
+    i += 2;
+    el.value = text.slice(0, i);
+    el.scrollTop = el.scrollHeight;
+    if (i >= text.length) { clearInterval(t); el.value = text; if (done) done(); }
+  }, sp);
+}
+
+/* ============================================================
    紙からkintoneへの「書き写し」
    ------------------------------------------------------------
    本番のkintoneでは、この欄は自分で文章を入力します。
@@ -97,50 +186,6 @@ function pick1(id)  { const a = picked(id); return a.length ? a[0] : ''; }
    ようにしています。押すと、気をつけることを説明したうえで、
    1文字ずつ入力される様子を見せます。
    ============================================================ */
-let COPY_SETS = {};
-
-function copyBox(targetId, label, tip, text) {
-  COPY_SETS[targetId] = { tip: tip, text: text, label: label };
-  return '<div class="copybox">' +
-    '<div class="ch">📄 → 💻　' + esc(label) + '</div>' +
-    '<button type="button" class="copybtn" id="cb_' + targetId + '" ' +
-      'onclick="copyFromSheet(\'' + targetId + '\')">受付シートから書き写す</button>' +
-    '</div>';
-}
-
-function copyFromSheet(targetId) {
-  const c = COPY_SETS[targetId];
-  if (!c) return;
-  modal('<h3>📄 → 💻　' + esc(c.label) + '</h3>' +
-    '<p class="muted" style="margin:0 0 10px">紙の受付シートを見ながら、kintoneに書き写します。</p>' +
-    '<div class="panel" style="margin:0;background:#fffaf0;border-color:#f3ddb5">' +
-      '<p style="margin:0"><b>気をつけること</b><br>' + c.tip + '</p></div>' +
-    '<p class="simplenote" style="margin-top:12px">本番のkintoneでは、ここは<b>自分で文章を入力します</b>。' +
-    'このゲームでは流れをつかむことを優先して、ボタンで書き写せるようにしています。</p>' +
-    '<div class="btnrow end"><button class="btn" onclick="closeModal();runCopy(\'' + targetId + '\')">書き写す</button></div>');
-}
-
-/* 1文字ずつ入力していく様子を見せます */
-function runCopy(targetId) {
-  const c = COPY_SETS[targetId];
-  const el = $('#' + targetId);
-  const btn = $('#cb_' + targetId);
-  if (!c || !el) return;
-  if (btn) { btn.classList.add('done'); btn.textContent = '書き写しました'; }
-  const f = el.closest('.fld'); if (f) f.classList.remove('err');
-  clearFinger();
-  el.value = '';
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  let i = 0;
-  const speed = Math.max(8, Math.min(28, 900 / c.text.length));
-  const tick = setInterval(() => {
-    i += 2;
-    el.value = c.text.slice(0, i);
-    el.scrollTop = el.scrollHeight;
-    if (i >= c.text.length) { clearInterval(tick); el.value = c.text; autoPoint(); }
-  }, speed);
-}
-
 /* ===== 押すべきボタンを指し示す ===== */
 function clearFinger() {
   const f = document.getElementById('finger');
@@ -158,16 +203,16 @@ function pointAt(el) {
   document.body.appendChild(d);
 }
 /* いま押すべきものを、上から順に探します */
+/* 指を出すのは「次に進むための1つのボタン」だけ。
+   選択肢（聞き取りの質問・3択の設問・マッチングの割り当て）は
+   プレイヤーが自分で考えて選ぶところなので、指は出しません。 */
 function autoPoint() {
-  if (document.querySelector('.mask')) return clearFinger();   // モーダル中は出さない
-  // 氏名を書き写したら、次は「取得」を押してもらう
-  const req = $('#i_req');
-  if (req && req.value.trim() && !lookupOK) return pointAt($('.lookup .btn'));
+  if (document.querySelector('.mask') || document.querySelector('.sheetov')) return clearFinger();
+  if (document.querySelector('.qbtn')) return clearFinger();      // 聞き取り中は出さない
+  if (document.querySelectorAll('.panel .btn-gray.btn-lg').length >= 2) return clearFinger(); // 3択の設問
   const el =
-    $('.copybtn:not(.done)') ||
-    $$('.qbtn').find(b => !b.disabled) ||
-    $$('.btn-lg').find(b => !b.disabled) ||
-    $('.kin-foot .btn') ||
+    $$('#afStart').find(b => !b.disabled) ||
+    $$('.btn-lg').find(b => !b.disabled && !b.classList.contains('btn-gray')) ||
     $('.actbtn') ||
     $$('.panel .btn').find(b => !b.disabled);
   pointAt(el);
@@ -397,39 +442,21 @@ function sceneIntro(i) {
 /* ============================================================
    3. ポータル（6アプリの確認）
    ============================================================ */
-const seenApps = {};
 function scenePortal() {
   setTop(CONFIG.TIMES.portal, '開設準備', '全班');
   show(
-    navi('災害VCを開設しました。まずは<b>使う6つのアプリ</b>を確認しましょう。<br>アイコンを押すと、それぞれの役割が出ます。<b>6つ全部</b>押してみてください。') +
-    '<div class="panel"><div class="portal" id="portal">' +
-      CONFIG.APPS.map((a, i) =>
-        '<div class="pcard' + (seenApps[a.key] ? ' seen' : '') + '" id="pc' + i + '" onclick="tapApp(' + i + ')">' +
+    navi('災害VCを開設しました。使うのは<b>6つのアプリ</b>です。<br>' +
+         'いま覚えなくてかまいません。<b>「こういうものがある」</b>とだけ見ておいてください。') +
+    '<div class="panel">' +
+      CONFIG.APPS.map(a =>
+        '<div class="applist">' +
           '<div class="ic">' + esc(a.icon) + '</div>' +
-          '<div class="tx">' + esc(a.name) + '</div>' +
-          '<div class="chk">' + (seenApps[a.key] ? '✓' : '') + '</div>' +
-        '</div>'
-      ).join('') +
-    '</div>' +
-    '<div id="appdesc" style="margin-top:14px"></div>' +
-    '<button class="btn btn-lg" id="portalNext" style="margin-top:16px" onclick="bump();sceneCall(0)" ' +
-      (Object.keys(seenApps).length >= CONFIG.APPS.length ? '' : 'disabled') + '>' +
+          '<div class="tx"><b>' + esc(a.name) + '</b><div class="ds">' + a.desc + '</div></div>' +
+        '</div>').join('') +
+      '<button class="btn btn-lg" style="margin-top:16px" onclick="bump();sceneCall(0)">' +
       'ニーズ班の仕事へ進む</button>' +
-    '<p class="muted center" style="margin-top:10px">' +
-      '<a href="#" onclick="event.preventDefault();bump();sceneCall(0)">アプリの確認をとばす</a></p>' +
     '</div>'
   );
-}
-function tapApp(i) {
-  const a = CONFIG.APPS[i];
-  seenApps[a.key] = true;
-  $('#pc' + i).classList.add('seen');
-  $('.chk', $('#pc' + i)).textContent = '✓';
-  $('#appdesc').innerHTML =
-    '<div class="panel fade" style="margin:0;background:#fbfcfc">' +
-      '<h2 style="font-size:1.06rem">' + esc(a.name) + '</h2><p style="margin:0;font-size:1rem">' + a.desc + '</p>' +
-    '</div>';
-  if (Object.keys(seenApps).length >= CONFIG.APPS.length) $('#portalNext').disabled = false;
 }
 
 /* ============================================================
@@ -555,6 +582,7 @@ function endIntake(idx, writeKeys) {
     '<div class="fld"><label>完了後見守りを要するニーズ</label>' + optsHtml('o_jwatch', ['要注意'], true) + '</div>' +
     '<button class="btn btn-lg" onclick="saveJudge(' + idx + ')">聞き取り完了　→　kintoneに入力する</button>';
   $('#qpanel').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setTimeout(autoPoint, 400);
 }
 
 function saveJudge(idx) {
@@ -764,11 +792,9 @@ function sheetHtml(c, bare) {
     (ended ? '（記入済み）' : '（記入中）') + '</summary>' + sheet + '</details>';
 }
 
-let lookupOK = false;   // 依頼者が名簿と紐づいたか
 function needsForm(idx) {
   const c = CONFIG.CALLS[idx];
   S.curCall = idx;
-  lookupOK = false;
   setTop(CONFIG.TIMES.needs, 'ニーズ受付', 'ニーズ班');
   const body =
     '<div class="fld"><label>ニーズID</label><input type="text" class="readonly" readonly value="（保存すると自動で採番されます）"></div>' +
@@ -780,197 +806,103 @@ function needsForm(idx) {
         '<div class="errmsg"></div></div>' +
     '</div></div>' +
     '<div class="grp"><div class="gh">依頼者情報</div><div class="gb">' +
-      '<div class="fld" id="f_req"><label>依頼者<span class="req">必須</span></label>' +
-        copyBox('i_req', '依頼者の氏名を書き写す',
-          '受付シートの氏名を、そのまま書き写します。<br>' +
-          'そのあと<b>「取得」</b>を押すと、名簿アプリから電話番号・住所・種別が自動で入ります。<br>' +
-          '<b>名簿にない方は「取得」できません。</b>その場合は先に名簿へ登録します。',
-          S.sheet.fields.name || c.requester) +
-        '<div class="lookup"><input type="text" id="i_req" placeholder="上のボタンで書き写します">' +
-        '<button class="btn btn-sm" onclick="doLookup()">取得</button>' +
-        '<button class="btn-gray btn-sm" onclick="clearLookup()">クリア</button></div>' +
-        '<div id="lookmsg" class="hint"></div><div class="errmsg"></div></div>' +
+      '<div class="fld"><label>依頼者<span class="req">必須</span></label>' +
+        '<input type="text" id="i_req" class="readonly" readonly></div>' +
       '<div class="fld"><label>電話番号</label><input type="text" id="i_tel" class="readonly" readonly></div>' +
       '<div class="fld"><label>住所</label><input type="text" id="i_addr" class="readonly" readonly></div>' +
-      '<div class="fld"><label>種別</label><input type="text" id="i_type" class="readonly" readonly>' +
-        '<div class="hint">名簿アプリの「種別」が自動で入ります。変更するときは名簿側を直します。</div></div>' +
+      '<div class="fld"><label>種別</label><input type="text" id="i_type" class="readonly" readonly></div>' +
     '</div></div>' +
-    '<div class="fld" id="f_body"><label>依頼内容<span class="req">必須</span></label>' +
-      copyBox('i_body', '依頼内容を書き写す',
-        '<b>聞いたことを省略せずに書きます。</b>この文章だけを見て、現地調査班は現場へ向かいます。<br>' +
-        '「泥の撤去」だけでは、どこが・どれくらい・誰が困っているのかが伝わりません。<br>' +
-        '<b>感想や自分の意見は書きません。</b>「かわいそうなので急いだほうがいい」は、判断材料になりません。',
-        (S.sheet.fields.state || c.modelText) +
-        (S.sheet.memo.length ? ' ' + S.sheet.memo.join(' ') : '')) +
-      '<textarea id="i_body" placeholder="上のボタンで、受付シートから書き写します"></textarea>' +
-      '<div class="errmsg"></div></div>';
+    '<div class="fld"><label>依頼内容<span class="req">必須</span></label>' +
+      '<textarea id="i_body" class="readonly" readonly></textarea></div>';
 
   show(
-    navi('電話が終わりました。ここからは<b>左の受付シートを見ながら</b>、kintoneに入力します。<br>' +
-         '依頼者名を入れて<b>「取得」</b>を押すと、<b>名簿アプリ</b>から電話番号・住所を呼び出せます。') +
+    navi('電話が終わりました。<b>受付シートを見ながら、kintoneに入力します。</b><br>' +
+         '<span class="muted">ここでは入力の様子を見てもらいます。どの欄が、どこから来た情報なのかに注目してください。</span>') +
     '<div class="split">' +
       '<div class="sheetcol">' + sheetHtml(c) + '</div>' +
       '<div class="formcol">' +
-        kin('needs', body, { plus: true, foot: '<button class="btn" onclick="saveNeed(' + idx + ')">保存</button>' }) +
+        afPanel('入力する') +
+        kin('needs', body, { plus: true }) +
       '</div>' +
     '</div>' + sheetFab()
   );
+  $('#afStart').onclick = () => afRun(needsSteps(idx), 'ニーズ管理アプリに保存しました。',
+    '保存して次へ', () => saveNeed(idx));
+}
+
+/* ニーズ管理アプリに、何がどこから入るのか */
+function needsSteps(idx) {
+  const c = CONFIG.CALLS[idx];
+  const f = S.sheet.fields;
+  const steps = [];
+
+  steps.push({ sel: '#o_method', type: 'opt', value: '電話', src: 'sheet',
+    label: '受付方法：電話',
+    say: '受付シートの「受付方法 ☑ 電話」を、そのまま選びます。' });
+
+  steps.push({ sel: '#i_req', type: 'text', value: f.name || c.requester, src: 'sheet',
+    label: '依頼者：' + (f.name || c.requester),
+    say: '受付シートに書き取った氏名を入力します。' });
+
+  // 名簿にいるかどうかで、次に起きることが変わります
+  if (c.inRoster) {
+    const hit = S.roster.find(r => norm(r.name) === norm(f.name || c.requester)) || {};
+    steps.push({ sel: null, src: 'roster', label: '「取得」で名簿アプリを検索',
+      say: '氏名で名簿アプリを検索すると、<b>' + esc(c.requester) + 'さんが見つかりました</b>。' +
+           '今朝、窓口に来られたときに登録されていた方です。' });
+    steps.push({ sel: '#i_tel',  type: 'text', value: hit.tel  || '', src: 'roster', label: '電話番号', say: '名簿から自動で入りました。<b>打ち直す必要はありません。</b>' });
+    steps.push({ sel: '#i_addr', type: 'text', value: hit.addr || '', src: 'roster', label: '住所', say: '名簿から自動で入りました。' });
+    steps.push({ sel: '#i_type', type: 'text', value: hit.type || '被災者', src: 'roster', label: '種別', say: '種別も名簿側で持っています。直すときは名簿を直します。' });
+  } else {
+    const d = c.newRoster || {};
+    steps.push({ sel: null, src: 'roster', label: '「取得」で名簿アプリを検索 → 見つからない',
+      say: '<b>' + esc(c.requester) + 'さんは、まだ名簿にいません。</b>災害VCへの最初の相談だからです。' });
+
+    // 基本情報を聞けていないと、名簿に登録できません
+    const miss = [];
+    if (!f.name) miss.push('氏名');
+    if (!f.tel)  miss.push('電話番号');
+    if (!f.addr) miss.push('住所');
+    if (miss.length) {
+      const q = c.questions.filter(x => x.need);
+      q.forEach(x => { if (x.set) Object.keys(x.set).forEach(k => { f[k] = x.set[k]; }); });
+      steps.push({ sel: null, src: 'talk', label: '⚠ 折り返し電話をかけ直しました',
+        say: '<b>' + esc(miss.join('・')) + 'を聞いていなかった</b>ので、名簿に登録できませんでした。' +
+             '折り返し電話をして聞き直しています。<br>' +
+             '被災された方に二度手間をかけることになりますし、混乱している時期ほど電話はつながりません。', pause: 1100 });
+      mark(false, '受付の1回の電話で、基本情報を聞き取れた',
+        '氏名・電話番号・住所は、名簿に登録するために必ず必要です。聞き漏らすと折り返し電話になり、' +
+        '被災された方に二度手間をかけることになります。混乱している時期ほど、電話がつながらないこともあります。');
+    }
+    steps.push({ sel: null, src: 'roster', label: '名簿アプリに新しく登録',
+      say: '聞き取った氏名・電話番号・住所で、名簿アプリに登録します。<br>' +
+           '<b>名簿に登録してから紐づけないと、同じ方のレコードが何件もできてしまいます。</b>' +
+           '災害VCでいちばん多い記録の事故です。', pause: 900 });
+    // 実際に名簿へ登録します
+    if (f.name && !S.roster.some(r => norm(r.name) === norm(f.name))) {
+      S.roster.push({ name: f.name, kana: d.kana, tel: f.tel, addr: f.addr, sex: d.sex, age: d.age, type: d.type || '被災者' });
+    }
+    steps.push({ sel: '#i_tel',  type: 'text', value: f.tel  || '', src: 'roster', label: '電話番号', say: '登録した名簿から、自動で入りました。' });
+    steps.push({ sel: '#i_addr', type: 'text', value: f.addr || '', src: 'roster', label: '住所', say: '登録した名簿から、自動で入りました。' });
+    steps.push({ sel: '#i_type', type: 'text', value: d.type || '被災者', src: 'roster', label: '種別', say: '名簿の「種別」が入ります。' });
+  }
+
+  const body = (f.state || c.modelText) + (S.sheet.memo.length ? '　' + S.sheet.memo.join(' ') : '');
+  steps.push({ sel: '#i_body', type: 'text', value: body, src: 'sheet',
+    label: '依頼内容',
+    say: '受付シートの「依頼内容」と「補足メモ」を、<b>省略せずに</b>書き写します。<br>' +
+         'この文章だけを見て、現地調査班は現場へ向かいます。' +
+         '「泥の撤去」とだけ書いても、どこが・どれくらい・誰が困っているのかが伝わりません。', pause: 900 });
+
+  return steps;
 }
 
 /* 名簿アプリのルックアップ。
    本物のkintoneと同じように、完全一致でなくても候補を探します。 */
-function doLookup() {
-  const v = norm($('#i_req').value);
-  if (!v) { $('#lookmsg').innerHTML = '<span style="color:var(--red)">お名前を入力してから「取得」を押してください。</span>'; return; }
-
-  let hits = S.roster.filter(r => norm(r.name) === v);          // まず完全一致
-  if (!hits.length) {                                            // 次に部分一致（姓だけ・ふりがな でも探す）
-    hits = S.roster.filter(r => norm(r.name).indexOf(v) >= 0 || norm(r.kana || '').indexOf(v) >= 0);
-  }
-  if (hits.length === 1) return applyLookup(hits[0]);
-  if (hits.length > 1)  return pickLookup(hits);
-
-  lookupOK = false;
-  $('#i_tel').value = ''; $('#i_addr').value = '';
-  $('#lookmsg').innerHTML =
-    '<span style="color:var(--red)">該当するレコードが見つかりません。</span><br>' +
-    '<button class="btn-orange btn-sm" style="margin-top:6px" onclick="rosterForm()">名簿アプリに新規登録する</button>';
-}
-
-function applyLookup(hit) {
-  $('#i_tel').value = hit.tel;
-  $('#i_addr').value = hit.addr;
-  $('#i_req').value = hit.name;          // 名簿の表記に合わせる
-  if ($('#i_type')) $('#i_type').value = hit.type || '';
-  lookupOK = true;
-  const f = $('#f_req'); if (f) f.classList.remove('err');
-  $('#lookmsg').innerHTML = '<span style="color:var(--green)">✓ 名簿アプリから呼び出しました（' +
-    esc(hit.age) + '／' + esc(hit.sex) + '）</span>';
-}
-
-/* 候補が複数あるときは選ばせる（kintoneのルックアップと同じ挙動） */
-function pickLookup(list) {
-  S.lookupCands = list;
-  modal('<h3>災害VC名簿　レコードの選択</h3>' +
-    '<p class="muted">入力された内容に当てはまる方が複数います。どの方かを選んでください。</p>' +
-    list.map((r, i) =>
-      '<button class="qbtn" onclick="chooseLookup(' + i + ')">' +
-        '<b>' + esc(r.name) + '</b>　<span class="muted">' + esc(r.age || '') + '／' + esc(r.addr || '') + '</span>' +
-      '</button>').join('') +
-    '<p class="muted">同じ方が何度も出てくる場合は、名簿が二重登録になっています。' +
-    '登録の前に検索する習慣をつけると、こうなりません。</p>' +
-    '<div class="btnrow end"><button class="btn-gray" onclick="closeModal()">キャンセル</button></div>');
-}
-function chooseLookup(i) { const r = S.lookupCands[i]; closeModal(); applyLookup(r); }
-function clearLookup() {
-  $('#i_tel').value = ''; $('#i_addr').value = ''; $('#lookmsg').innerHTML = ''; lookupOK = false;
-}
-
-/* --- 名簿アプリへの新規登録 ---
-   受付シートで聞き取れた内容だけが入ります。
-   聞いていない項目は空欄のままで、そのままでは登録できません。 */
-function rosterForm() {
-  const c = CONFIG.CALLS[S.curCall] || CONFIG.CALLS[0];
-  const f = S.sheet.fields || {};
-
-  // すでに名簿にいる方を、もう一度登録しようとしていないか
-  const dup = f.name && S.roster.find(r => norm(r.name) === norm(f.name));
-  if (dup) {
-    return modal('<h3>その方は、すでに名簿にいます</h3>' +
-      '<p><b>' + esc(dup.name) + '</b>（' + esc(dup.addr) + '）が登録済みです。<br>' +
-      'ここで新規登録すると、同じ方のレコードが2件できてしまいます。</p>' +
-      '<p class="muted">「取得」で見つからなかったのは、入力した名前の表記が名簿と違っていたためです。' +
-      '名簿の表記に合わせて入力し直してください。</p>' +
-      '<div class="btnrow end"><button class="btn" onclick="closeModal();useExisting(\'' +
-        esc(dup.name).replace(/'/g, "\\'") + '\')">名簿の「' + esc(dup.name) + '」を使う</button></div>');
-  }
-
-  const miss = [];
-  if (!f.name) miss.push('氏名');
-  if (!f.tel)  miss.push('電話番号');
-  if (!f.addr) miss.push('住所');
-
-  const line = (label, v) => '<div class="fld"><label>' + label + '</label>' +
-    '<input type="text" class="readonly" readonly value="' + esc(v || '') + '"' +
-    (v ? '' : ' style="border-color:var(--red);background:#fff6f5"') + '>' +
-    (v ? '' : '<div class="hint" style="color:var(--red)">受付シートが空欄です（聞き取れていません）</div>') + '</div>';
-
-  modal(
-    '<h3>災害VC名簿　新規レコード</h3>' +
-    '<p class="muted">名簿にない方は、先に名簿アプリへ登録します。' +
-    '<b>受付シートを見ながら</b>転記してください。</p>' +
-    line('氏名', f.name) + line('電話番号', f.tel) + line('住所', f.addr) +
-    '<div class="fld" id="f_rtype"><label>種別<span class="req">必須</span></label>' +
-      optsHtml('o_rtype', ['被災者', '関係者', 'スタッフ', 'その他'], false) +
-      '<div class="hint">ここで選んだ種別が、ニーズ管理アプリ側にも自動で入ります。</div>' +
-      '<div class="errmsg"></div></div>' +
-    (miss.length
-      ? '<div class="panel" style="margin:0;background:#fdeceb;border-color:#f3c4c0">' +
-        '<p style="margin:0;font-size:1rem"><b>' + esc(miss.join('・')) + '</b>を聞いていないので、名簿に登録できません。<br>' +
-        '<span class="muted">名簿に登録できないと、ニーズも登録できません。折り返し電話をして聞き直すことになります。</span></p></div>' +
-        '<div class="btnrow end"><button class="btn-gray" onclick="closeModal()">閉じる</button>' +
-        '<button class="btn-orange" onclick="callBack()">折り返し電話して聞き直す</button></div>'
-      : '<div class="btnrow end"><button class="btn-gray" onclick="closeModal()">キャンセル</button>' +
-        '<button class="btn" onclick="saveRoster()">保存</button></div>')
-  );
-}
-
-function useExisting(name) {
-  $('#i_req').value = name;
-  doLookup();
-}
-
-/* 聞き漏らした基本情報を、折り返し電話で埋める（減点） */
-function callBack() {
-  const c = CONFIG.CALLS[S.curCall] || CONFIG.CALLS[0];
-  c.questions.filter(q => q.need).forEach(q => {
-    if (q.set) Object.keys(q.set).forEach(k => { S.sheet.fields[k] = q.set[k]; });
-  });
-  mark(false, '受付の1回の電話で、基本情報を聞き取れた',
-    '氏名・電話番号・住所は、名簿に登録するために必ず必要です。聞き漏らすと折り返し電話になり、' +
-    '被災された方に二度手間をかけることになります。混乱している時期ほど、電話がつながらないこともあります。');
-  closeModal();
-  rosterForm();
-}
-
-function saveRoster() {
-  const c = CONFIG.CALLS[S.curCall] || CONFIG.CALLS[0];
-  const d = c.newRoster || {}, f = S.sheet.fields;
-  const t = pick1('o_rtype');
-  if (!t) return fail('f_rtype', '種別を選んでください。');
-  if (!S.roster.some(r => norm(r.name) === norm(f.name))) {
-    S.roster.push({ name: f.name, kana: d.kana, tel: f.tel, addr: f.addr, sex: d.sex, age: d.age, type: t });
-  }
-  closeModal();
-  // 登録した本人をそのまま呼び出す（入力欄に姓だけ残っていても迷わないように）
-  const hit = S.roster.find(r => norm(r.name) === norm(f.name));
-  if (hit) {
-    applyLookup(hit);
-    $('#lookmsg').innerHTML = '<span style="color:var(--green)">✓ 名簿に登録し、そのまま呼び出しました（' +
-      esc(hit.age || '') + '／' + esc(hit.sex || '') + '）</span>';
-  }
-}
-
 function saveNeed(idx) {
   const c = CONFIG.CALLS[idx];
-  clearFails();
-  if (!pick1('o_method')) return fail('f_method', '必須項目です。');
-  const name = $('#i_req').value.trim();
-  if (!name) return fail('f_req', '必須項目です。');
-  if (!lookupOK) return fail('f_req', '「取得」を押して名簿と紐づけてください。名簿にない方は、先に名簿アプリへ登録します。');
+  const name = $('#i_req').value.trim() || S.sheet.fields.name || c.requester;
   const body = $('#i_body').value.trim();
-  if (!body) return fail('f_body', '必須項目です。');
-
-  if (!c.inRoster) {
-    mark(true, '名簿にない依頼者を、名簿に登録してから紐づけた',
-      '名簿に無い方をそのまま自由入力すると、あとで同じ人のデータが二重・三重にできて、記録が汚れます。先に名簿へ登録するのが正解です。');
-  }
-  if (idx === 0) {
-    const enough = body.length >= 15;
-    mark(enough, '依頼内容を具体的に書いた',
-      enough ? '次の現地調査班が読んで判断できる書き方でした。'
-             : 'あなたの記録は「' + esc(body) + '」でした。現地調査班はこれだけを見て現場へ向かいます。どこが・どうなっていて・何に困っているかまで書きましょう。');
-  }
 
   S.needs.push({
     id: S.needs.length + 1,
@@ -1099,93 +1031,78 @@ function sceneSurvey(i, desk) {
         '<div class="fld"><label>現地で聞き取った内容</label>' +
         '<div style="background:#fbfaf5;border:1px dashed #d8cdb4;border-radius:6px;padding:11px;font-size:1rem">' + esc(sv.memo) + '</div></div>') +
     '<hr class="sep">' +
-    '<div class="fld" id="f_dmg"><label>被災状況<span class="req">必須</span></label>' +
-      optsHtml('o_dmg', ['床上浸水', '床下浸水', '一部破損', '土砂流入', 'その他'], true) + '<div class="errmsg"></div></div>' +
-    '<div class="fld" id="f_cat"><label>依頼分類<span class="req">必須</span></label>' +
-      optsHtml('o_cat', ['土砂撤去', '荷物運び出し', '清掃', 'その他'], true) + '<div class="errmsg"></div></div>' +
-    '<div class="fld" id="f_ppl"><label>必要人数等<span class="req">必須</span></label>' +
-      optsHtml('o_ppl', CONFIG.PEOPLE_CHOICES, false) +
-      '<div class="hint">何人で行けば終わりそうか。<b>決まった正解はありません。</b><br>' +
-      '<span style="color:#3f5e73">※ 本番のkintoneでは、この欄は自由に文字を入力します。' +
-      'ここでは選ぶだけにしています。</span></div>' +
-      '<div class="errmsg"></div></div>' +
-    '<div class="fld" id="f_eq"><label>資機材等<span class="req">必須</span></label>' +
-      optsHtml('o_eq', CONFIG.EQUIPMENT, true) +
-      '<div class="hint">資機材班はこの記載どおりに準備します。運び出しに車が要るなら「軽トラック」も忘れずに。</div><div class="errmsg"></div></div>' +
-    '<div class="fld"><label>危機介入の必要性</label>' +
-      optsHtml('o_cri', ['必要あり'], true) +
-      '<div class="hint">生命や生活が今すぐ脅かされている方は、ここにチェックを入れて優先します。</div></div>' +
-    '<div class="fld"><label>特記事項・メモ</label>' +
-      copyBox('i_memo', '見立てた理由を書く',
-        '人数や資機材に<b>決まった正解はありません</b>。だからこそ、<b>そう判断した理由</b>を残します。<br>' +
-        '「4名」とだけ書かれていても、資機材班もマッチング班も、増やしていいのか減らしていいのか判断できません。<br>' +
-        '「泥の搬出先まで距離があり、2人1組で一輪車を往復させるため」——ここまで書いてあれば、次の班が動けます。',
-        sv.memoTip || '') +
-      '<textarea id="i_memo" placeholder="上のボタンで書き写します"></textarea></div>';
+    '<div class="fld"><label>被災状況</label>' + optsHtml('o_dmg', ['床上浸水', '床下浸水', '一部破損', '土砂流入', 'その他'], true) + '</div>' +
+    '<div class="fld"><label>依頼分類</label>' + optsHtml('o_cat', ['土砂撤去', '荷物運び出し', '清掃', 'その他'], true) + '</div>' +
+    '<div class="fld"><label>必要人数等</label>' + optsHtml('o_ppl', CONFIG.PEOPLE_CHOICES, false) + '</div>' +
+    '<div class="fld"><label>資機材等</label>' + optsHtml('o_eq', CONFIG.EQUIPMENT, true) + '</div>' +
+    '<div class="fld"><label>危機介入の必要性</label>' + optsHtml('o_cri', ['必要あり'], true) + '</div>' +
+    '<div class="fld"><label>特記事項・メモ</label><textarea id="i_memo" class="readonly" readonly></textarea></div>';
 
   show(
     (desk
       ? navi('このニーズは<b>現地調査を「不要」</b>と判断しました。現場には行かず、' +
-             '電話で聞き取った内容だけで<b>必要人数</b>と<b>資機材</b>を決めます。<br>' +
-             '<span class="muted">見立てを外すと、そのまま資機材班とマッチング班に影響します。</span>')
-      : navi('現場に着きました。写真と聞き取りの内容から、<b>必要人数</b>と<b>資機材</b>を判断して入力してください。<br>' +
-             '<span class="muted">聞き取りメモの中に、見落としてはいけない情報が混じっていることがあります。</span>')) +
-    '<div style="max-width:400px;margin:0 auto">' +
+             '電話で聞き取った内容だけで<b>必要人数</b>と<b>資機材</b>を決めます。')
+      : navi('現場に着きました。<b>現地調査の結果を、その場でスマホからkintoneに入力します。</b><br>' +
+             '<span class="muted">写真と聞き取りの内容から、何をどう判断して入力するのかを見てください。</span>')) +
+    '<div style="max-width:430px;margin:0 auto">' +
       '<p class="muted center">' + (desk ? '🖥 センターで入力しています' : '📱 スマホから入力しています') + '</p>' +
-      kin('needs', body, { foot: '<button class="btn" onclick="saveSurvey(' + i + ')">保存</button>' }) +
+      afPanel('現地調査の結果を入力する') +
+      kin('needs', body) +
     '</div>'
   );
+  $('#afStart').onclick = () => afRun(surveySteps(i, desk),
+    'ニーズ管理アプリに保存しました。', '保存して次へ', () => saveSurvey(i));
+}
+
+/* 現地調査で分かったことが、どう入るのか */
+function surveySteps(i, desk) {
+  const n = S.needs[i], sv = n.call.survey;
+  const src = desk ? 'talk' : 'field';
+  const seen = desk ? '電話で聞き取った内容から' : '現場を見て';
+  return [
+    { sel: '#o_dmg', type: 'opt', values: sv.damage, src: src,
+      label: '被災状況：' + sv.damage.join('・'),
+      say: seen + '判断します。浸水の深さは、後の資機材の量に直結します。' },
+    { sel: '#o_cat', type: 'opt', values: sv.category, src: src,
+      label: '依頼分類：' + sv.category.join('・'),
+      say: '何をする活動なのかを分類します。マッチングのときの目安になります。' },
+    { sel: '#o_ppl', type: 'opt', value: sv.people + '名', src: src,
+      label: '必要人数：' + sv.people + '名',
+      say: '<b>人数に決まった正解はありません。</b>現場の広さ、その日のボランティアの集まり具合、' +
+           'センターの体制で変わります。ここでは' + sv.people + '名と見立てました。' },
+    { sel: '#o_eq', type: 'opt', values: sv.equip, src: src,
+      label: '資機材：' + sv.equip.join('、'),
+      say: '<b>資機材班はこの記載どおりに準備します。</b>' +
+           (sv.equip.indexOf('軽トラック') >= 0
+             ? '土砂は「運び出す先」まで考える必要があるので、軽トラックも入れます。'
+             : '運び出しに車が要るときは、軽トラックも忘れずに入れます。') },
+    (sv.crisis
+      ? { sel: '#o_cri', type: 'opt', value: '必要あり', src: src,
+          label: '危機介入の必要性：必要あり',
+          say: '受付の時点で紙のシートに書いた判断を、kintone側にも残します。' +
+               'これで<b>全班が「この現場は優先」と分かります</b>。', pause: 850 }
+      : { sel: null, src: src, label: '危機介入の必要性：チェックなし',
+          say: 'ご家族と同居で母屋も無事です。ここにチェックを付けると、本当に急ぐ方が埋もれてしまいます。' }),
+    { sel: '#i_memo', type: 'text', value: sv.memoTip || '', src: src,
+      label: '特記事項・メモ',
+      say: '人数や資機材に正解がないからこそ、<b>そう判断した理由</b>を残します。<br>' +
+           '「4名」とだけ書いてあっても、資機材班もマッチング班も、増やしていいのか減らしていいのか判断できません。', pause: 900 }
+  ];
 }
 
 function saveSurvey(i) {
   const n = S.needs[i];
   const sv = n.call.survey;
-  clearFails();
-  if (!picked('o_dmg').length) return fail('f_dmg', '必須項目です。');
-  if (!picked('o_cat').length) return fail('f_cat', '必須項目です。');
-  const ppl = parseInt(pick1('o_ppl'), 10);
-  if (!ppl) return fail('f_ppl', '必要人数を選んでください。');
-  const eq = picked('o_eq');
-  if (!eq.length) return fail('f_eq', '必要な資機材を選んでください。');
 
-  const crisis = picked('o_cri').length > 0;
-
-  // 採点：危機介入の判断（これが現地調査でいちばん大事）
-  if (sv.crisis) {
-    mark(crisis, '危機介入が必要な方に気づいた',
-      crisis ? '正しく判断できました。' + sv.crisisWhy
-             : '<b>見落としがありました。</b>' + sv.crisisWhy);
-  }
-  // 採点：資機材の具体性（軽トラックが要る現場か）
-  if (sv.equip.indexOf('軽トラック') >= 0) {
-    const ok = eq.indexOf('軽トラック') >= 0;
-    mark(ok, '運び出しに必要な軽トラックを書いた',
-      ok ? '資機材班が車を手配できます。'
-         : '土砂や濡れた家財は「運び出す先」まで考える必要があります。軽トラックの記載がないと、現場で泥を積んだまま止まってしまいます。');
-  }
-  // 人数そのものに正解はないので、「根拠が残せたか」を見ます
-  if (i === 0) {
-    const memo = $('#i_memo').value.trim();
-    const hasWhy = memo.length >= 10;
-    mark(hasWhy, '必要人数や資機材の根拠を、特記事項に残した',
-      hasWhy
-        ? 'あなたの見立ては' + ppl + '名でした。<b>人数に決まった正解はありません。</b>' +
-          '現場の広さ、その日のボランティアの集まり具合、センターの体制で変わります。' +
-          '大事なのは、なぜその人数なのかが次の班に伝わることで、それが書けていました。'
-        : 'あなたは' + ppl + '名と書きましたが、<b>その根拠が特記事項に残っていません。</b>' +
-          '人数に決まった正解はありません。だからこそ、数字だけでは資機材班もマッチング班も増減の判断ができません。' +
-          '「重い段ボールが20箱あり、2人1組で運ぶため」のように、数字の理由を書き添えてください。');
-  }
-
-  n.status = '活動中';
-  n.people = ppl;
-  n.equip = eq;
-  n.crisis = crisis || sv.crisis;   // 実態としては危機介入が必要
-  n.crisisMissed = sv.crisis && !crisis;
-  n.category = picked('o_cat');
+  n.status   = '活動中';
+  n.people   = sv.people;
+  n.equip    = sv.equip.slice();
+  n.crisis   = sv.crisis;
+  n.category = sv.category.slice();
+  n.memo     = sv.memoTip || '';
   n.surveyed = true;
 
-  // 危機介入が必要な方を、現場を見ずに判断していないか
+  // 危機介入が必要な方の現場を、見ずに済ませていないか（判断は受付シートで行っています）
   if (sv.crisis && n.deskOnly) {
     mark(false, '現地調査の要否を、根拠をもって判断した',
       esc(n.requester) + 'さんは<b>危機介入が必要な方</b>でした。生活が成り立っていない方の現場を見ずに、' +
@@ -1878,40 +1795,41 @@ function openReport(viaAction) {
     '<div class="hint" style="color:var(--orange-d)">↑ ［活動報告］ボタンから開いたので、自動で入りました</div></div>';
 
   show(
-    navi('ニーズIDが自動で引き継がれました。この状態で入力すれば、ニーズと報告がひもづきます。') +
+    navi('ニーズIDが自動で引き継がれました。<b>紙の報告書と、口頭で聞いた内容を記録します。</b>') +
+    afPanel('活動報告を入力する') +
     kin('report',
       idField +
       '<div class="fld"><label>活動日</label><input type="text" class="readonly" readonly value="' + esc(CONFIG.DAY) + '"></div>' +
       '<div class="fld"><label>報告者</label><input type="text" class="readonly" readonly value="' + esc(members[0] || '') + '"></div>' +
       '<div class="fld"><label>活動人数</label><input type="text" class="readonly" readonly value="' + members.length + '名"></div>' +
-      '<div class="fld" id="f_rep"><label>報告内容<span class="req">必須</span></label>' +
-        copyBox('i_rep', '紙の報告書＋口頭の報告を書き写す',
-          '<b>紙に書かれていることだけを写すのでは足りません。</b><br>' +
-          'ボランティアが口で言ったことにこそ、翌日の判断材料があります。<br>' +
-          '「押し入れの奥がまだ濡れている」「田中さんは水が出なくて洗い物ができない」——' +
-          'これは紙の報告書には出てきません。<b>聞いたその場で書き残さないと、消えます。</b>',
-          '土砂の撤去を行い、土のう袋20袋を搬出。押し入れの奥がまだ濡れており、本日は未着手のため翌日に継続。ご本人は断水で洗い物ができないと話されていた。') +
-        '<textarea id="i_rep" placeholder="上のボタンで書き写します"></textarea>' +
-        '<div class="errmsg"></div></div>' +
-      '<div class="fld" id="f_prg"><label>進捗状況<span class="req">必須</span></label>' +
-        optsHtml('o_prg', ['継続', '完了'], false) + '<div class="errmsg"></div></div>',
-      { plus: true, foot: '<button class="btn" onclick="saveReport()">保存</button>' })
+      '<div class="fld"><label>報告内容</label><textarea id="i_rep" class="readonly" readonly></textarea></div>' +
+      '<div class="fld"><label>進捗状況</label>' + optsHtml('o_prg', ['継続', '完了'], false) + '</div>',
+      { plus: true })
   );
+  $('#afStart').onclick = () => afRun(reportSteps(), '活動報告アプリに保存しました。',
+    '保存して次へ', saveReport);
+}
+
+function reportSteps() {
+  return [
+    { sel: '#i_rep', type: 'text', src: 'talk',
+      value: '土砂の撤去を行い、土のう袋20袋を搬出。押し入れの奥がまだ濡れており、本日は未着手。ご本人は断水で洗い物ができないと話されていた。',
+      label: '報告内容',
+      say: '<b>紙の報告書に書かれていることだけでは足りません。</b>' +
+           '「押し入れの奥がまだ濡れている」「断水で洗い物ができない」は、口頭でしか出てこなかった話です。<br>' +
+           '<b>聞いたその場で書き残さないと、消えます。</b>これが翌日の判断と、完了後の見守りにつながります。',
+      pause: 1000 },
+    { sel: '#o_prg', type: 'opt', value: '完了', src: 'talk',
+      label: '進捗状況：完了',
+      say: '土砂の撤去という依頼そのものは終わったので「完了」にします。' +
+           '（作業が残っているときは「継続」にして、翌日へ申し送ります）' }
+  ];
 }
 
 function saveReport() {
-  clearFails();
   const t = $('#i_rep').value.trim();
-  if (!t) return fail('f_rep', '必須項目です。');
-  const prg = pick1('o_prg');
-  if (!prg) return fail('f_prg', '必須項目です。');
-
-  const heard = /水|断水|洗い|押し入れ|濡れ|奥/.test(t);
-  mark(heard, '口頭で聞き取った内容も記録した',
-    heard ? '「押し入れの奥がまだ濡れている」「水が出ない」は紙の報告書には出てこない情報です。これが翌日の判断と、完了後の見守りにつながります。'
-          : 'ボランティアは「押し入れの奥がまだ濡れている」「田中さんは水が出なくて洗い物ができない」と話していました。紙に書かれない情報こそ、次の日の判断材料になります。');
-
-  S.reports.push({ needId: reportLinked ? S.needs[0].id : null, text: t, prg: prg });
+  const prg = pick1('o_prg') || '完了';
+  S.reports.push({ needId: S.needs[0].id, text: t, prg: prg });
 
   if (prg === '完了') {
     modal('<h3>活動報告を「完了」で保存しました</h3>' +
@@ -1969,53 +1887,50 @@ function sceneCerts() {
 
 let certOK = false;
 function certForm() {
-  certOK = false;
+  certOK = true;
+  const v = certVol();
   const body =
-    '<div class="fld" id="f_cn"><label>氏名<span class="req">必須</span></label>' +
-      '<div class="lookup"><input type="text" id="i_cn" placeholder="お名前を入力して「取得」を押す">' +
-      '<button class="btn btn-sm" onclick="certLookup()">取得</button>' +
-      '<button class="btn-gray btn-sm" onclick="certClear()">クリア</button></div>' +
-      '<div id="certmsg" class="hint"></div>' +
-      '<div class="hint">当日受付アプリから、電話番号・住所を呼び出せます。</div>' +
-      '<div class="errmsg"></div></div>' +
+    '<div class="fld"><label>氏名</label><input type="text" id="i_cn" class="readonly" readonly></div>' +
     '<div class="fld"><label>電話番号</label><input type="text" id="i_ctel" class="readonly" readonly></div>' +
     '<div class="fld"><label>住所</label><input type="text" id="i_cadr" class="readonly" readonly></div>' +
-    '<div class="fld"><label>内容（災害名）</label><input type="text" class="readonly" readonly value="' + esc(CONFIG.DISASTER) + '"></div>' +
-    '<div class="fld"><label>活動開始日</label><input type="text" class="readonly" readonly value="' + esc(CONFIG.DAY) + '"></div>' +
-    '<div class="fld"><label>活動終了日</label><input type="text" class="readonly" readonly value="' + esc(CONFIG.DAY) + '"></div>' +
-    '<div class="fld"><label>活動期間</label><input type="text" class="readonly" readonly value="1日間（自動計算）"></div>' +
-    '<div class="fld"><label>印刷</label><input type="text" class="readonly" readonly value="未"></div>';
+    '<div class="fld"><label>内容（災害名）</label><input type="text" id="i_cnm" class="readonly" readonly></div>' +
+    '<div class="fld"><label>活動開始日</label><input type="text" id="i_cs" class="readonly" readonly></div>' +
+    '<div class="fld"><label>活動終了日</label><input type="text" id="i_ce" class="readonly" readonly></div>' +
+    '<div class="fld"><label>活動期間</label><input type="text" id="i_cp" class="readonly" readonly></div>';
   show(
-    navi('氏名を入れて<b>「取得」</b>を押すと、<b>当日受付アプリ</b>から連絡先が入ります。<br>' +
+    navi('<b>活動証明アプリ</b>で発行します。氏名から<b>当日受付アプリ</b>を検索すると、連絡先が自動で入ります。<br>' +
          '<span class="muted">当日受付アプリがボランティア名簿を兼ねているので、ここから引けます。</span>') +
-    kin('cert', body, { plus: true,
-      actions: '<button class="actbtn" onclick="certIssue()">活動証明書を発行</button>' })
+    afPanel('活動証明書を入力する') +
+    kin('cert', body, { plus: true })
   );
+  $('#afStart').onclick = () => afRun(certSteps(v), '活動証明書の内容がそろいました。',
+    '活動証明書を発行する', certIssue);
 }
-function certLookup() {
-  const v = norm($('#i_cn').value);
-  if (!v) { $('#certmsg').innerHTML = '<span style="color:var(--red)">お名前を入力してください。</span>'; return; }
-  let hits = S.vols.filter(x => norm(x.name) === v);
-  if (!hits.length) hits = S.vols.filter(x => norm(x.name).indexOf(v) >= 0);
-  if (hits.length === 1) {
-    const h = hits[0];
-    $('#i_cn').value = h.name; $('#i_ctel').value = h.tel; $('#i_cadr').value = h.addr || '善通寺市内';
-    certOK = true;
-    $('#certmsg').innerHTML = '<span style="color:var(--green)">✓ 当日受付アプリから呼び出しました</span>';
-  } else if (hits.length > 1) {
-    $('#certmsg').innerHTML = '<span style="color:var(--orange-d)">候補が複数あります。フルネームで入力してください。</span>';
-  } else {
-    certOK = false;
-    $('#certmsg').innerHTML = '<span style="color:var(--red)">当日受付アプリに該当する方がいません。受付が済んでいるか確認してください。</span>';
-  }
+
+function certSteps(v) {
+  return [
+    { sel: '#i_cn', type: 'text', value: v.name, src: 'recept',
+      label: '氏名：' + v.name,
+      say: '氏名で当日受付アプリを検索します。' },
+    { sel: '#i_ctel', type: 'text', value: v.tel, src: 'recept',
+      label: '電話番号',
+      say: '当日受付アプリから自動で入りました。<b>朝、QRコードで受付したときの情報</b>がここまでつながっています。' },
+    { sel: '#i_cadr', type: 'text', value: v.addr || '善通寺市内', src: 'recept',
+      label: '住所', say: '同じく当日受付アプリから入りました。' },
+    { sel: '#i_cnm', type: 'text', value: CONFIG.DISASTER, src: 'auto',
+      label: '内容（災害名）', say: '証明書に載る災害名です。' },
+    { sel: '#i_cs', type: 'text', value: CONFIG.DAY, src: 'auto', label: '活動開始日' },
+    { sel: '#i_ce', type: 'text', value: CONFIG.DAY, src: 'auto', label: '活動終了日' },
+    { sel: '#i_cp', type: 'text', value: '1日間', src: 'auto',
+      label: '活動期間：1日間',
+      say: '開始日と終了日から<b>自動で計算</b>されます。手で数える必要はありません。', pause: 850 }
+  ];
 }
-function certClear() { $('#i_ctel').value = ''; $('#i_cadr').value = ''; $('#certmsg').innerHTML = ''; certOK = false; }
 
 function certIssue() {
-  clearFails();
-  if (!certOK) return fail('f_cn', '「取得」を押して、当日受付アプリから呼び出してください。');
   mark(true, '活動証明書を、当日受付アプリから呼び出して発行した',
-    '当日受付アプリがボランティア名簿を兼ねているので、氏名から連絡先を引けます。手入力すると表記ゆれのもとになります。');
+    '当日受付アプリがボランティア名簿を兼ねているので、氏名から連絡先を引けます。' +
+    '手入力すると表記ゆれが起き、同じ人が別人として何件も並ぶことになります。');
   modal('<h3>活動証明書</h3>' +
     '<div class="doc"><h4>活 動 証 明 書</h4><table>' +
       '<tr><td class="h">氏名</td><td>' + esc($('#i_cn').value) + '　様</td></tr>' +
@@ -2167,7 +2082,6 @@ function restart() {
   S.needs = []; S.vols = []; S.reports = []; S.review = []; S.step = 0;
   S.sheet = { fields: {}, memo: [], asked: [], ended: false, judge: {} };
   S.flags = {};
-  Object.keys(seenApps).forEach(k => delete seenApps[k]);
   arrivalsStarted = false;
   if (typeof NAV !== 'undefined') { NAV.stack = []; updateBackBtn(); }
   sceneTitle();
@@ -2196,17 +2110,15 @@ const NAV = { stack: [], lock: false };
 
 function snapshot() {
   return JSON.stringify({
-    S: S, seenApps: seenApps,
-    lookupOK: lookupOK, certOK: certOK, selNeed: selNeed, reportLinked: reportLinked
+    S: S,
+    certOK: certOK, selNeed: selNeed, reportLinked: reportLinked
   });
 }
 function restoreSnap(str) {
   const o = JSON.parse(str);
   Object.keys(S).forEach(k => { delete S[k]; });
   Object.keys(o.S).forEach(k => { S[k] = o.S[k]; });
-  Object.keys(seenApps).forEach(k => { delete seenApps[k]; });
-  Object.keys(o.seenApps).forEach(k => { seenApps[k] = o.seenApps[k]; });
-  lookupOK = o.lookupOK; certOK = o.certOK; selNeed = o.selNeed; reportLinked = o.reportLinked;
+  certOK = o.certOK; selNeed = o.selNeed; reportLinked = o.reportLinked;
 }
 function remember(fn, args) {
   if (NAV.lock) return;
