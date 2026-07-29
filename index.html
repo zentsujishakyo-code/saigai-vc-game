@@ -387,6 +387,25 @@ button:disabled{opacity:.4;cursor:not-allowed;}
   50%{transform:translate(-7px,-8px);}
 }
 
+/* 自分で操作するときの手順リスト */
+.mlist{
+  background:#fff8ee;border:1px solid #f3ddb5;border-radius:8px;
+  padding:12px 14px;margin-bottom:12px;
+}
+.ml-h{font-weight:bold;font-size:.95rem;color:var(--orange-d);margin-bottom:8px;}
+.ml-i{display:flex;gap:9px;align-items:flex-start;padding:5px 0;font-size:.95rem;}
+.ml-n{
+  flex:0 0 22px;height:22px;border-radius:50%;background:#e6dcc9;color:#8a7442;
+  font-size:.8rem;display:flex;align-items:center;justify-content:center;font-weight:bold;
+}
+.ml-i.done .ml-n{background:var(--green);color:#fff;font-size:0;}
+.ml-i.done .ml-n::before{content:"✓";font-size:.9rem;}
+.ml-i.done .ml-t{color:#8a9aa0;text-decoration:line-through;}
+.ml-note{
+  font-size:.85rem;color:#7d6a3c;margin-top:9px;padding-top:9px;
+  border-top:1px dashed #e0d0aa;
+}
+
 /* 現地調査の注意点 */
 .caution{border-left:4px solid var(--orange);padding:9px 0 9px 13px;margin-bottom:11px;}
 .caution .ct{font-weight:bold;font-size:1rem;margin-bottom:3px;display:flex;align-items:center;gap:8px;}
@@ -526,11 +545,19 @@ button:disabled{opacity:.4;cursor:not-allowed;}
   border-left:3px solid rgba(255,217,160,.5);padding-left:9px;
 }
 
-/* 結果 */
-.score{font-size:52px;font-weight:bold;color:var(--orange-d);line-height:1.1;}
+/* 結果（点数はつけません） */
 .rev{border-left:4px solid var(--line);padding:10px 0 10px 13px;margin-bottom:12px;}
 .rev.ok{border-color:var(--green);}
-.rev.ng{border-color:var(--red);}
+.rev.ng{border-color:var(--orange);}
+.rev.think{border-color:#5b8fd6;}
+.rv-ic{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:28px;height:28px;border-radius:50%;margin-right:8px;
+  font-size:.95rem;vertical-align:-6px;
+}
+.rv-ic.ok{background:#e6f5ed;color:var(--green);}
+.rv-ic.ng{background:#fdf0dd;color:var(--orange-d);}
+.rv-ic.think{background:#e6eefa;color:#3a6bb5;}
 .rev .rt{font-weight:bold;font-size:14.5px;margin-bottom:3px;}
 .rev .rd{font-size:13px;color:#555;}
 

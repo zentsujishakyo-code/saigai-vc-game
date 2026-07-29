@@ -64,10 +64,14 @@ function navi(text) {
 }
 /* 電話・来訪の場面に、話し手のシルエットを重ねる */
 function pSil(key) { return '<div class="psil">' + sil(key) + '</div>'; }
-/* ふりかえり項目を記録する。同じ見出しは上書き（やり直しても二重に増えない） */
-function mark(ok, title, detail) {
+/* ふりかえり項目を記録する。同じ見出しは上書き（やり直しても二重に増えない）
+   kind は3種類。点数はつけません。
+     ok    … できていたこと
+     point … ここは覚えて帰ってほしいこと（できていなかった）
+     think … 正解がひとつではない。考えたこと自体が大事           */
+function mark(ok, title, detail, kind) {
   const i = S.review.findIndex(r => r.title === title);
-  const row = { ok: ok, title: title, detail: detail };
+  const row = { ok: ok, title: title, detail: detail, kind: kind || (ok ? 'ok' : 'point') };
   if (i >= 0) S.review[i] = row; else S.review.push(row);
 }
 
@@ -84,11 +88,86 @@ document.addEventListener('click', e => {
   }
   const f = box.closest('.fld');
   if (f) f.classList.remove('err');
+  if (window.mUpdate) mUpdate();
 });
 
 /* 選択されている値を配列で返す */
 function picked(id) { return $$('#' + id + ' .opt.on').map(o => o.dataset.v); }
 function pick1(id)  { const a = picked(id); return a.length ? a[0] : ''; }
+
+
+/* ============================================================
+   自分で操作するモード（2件目）
+   ------------------------------------------------------------
+   1件目は入力される様子を見てもらい、2件目は同じことを
+   自分でやってもらいます。文字は打ちません。
+   選ぶ・「取得」を押す・「書き写す」を押す・保存する、の4動作です。
+   ============================================================ */
+let lookupOK = false;
+let MCOPY = {};
+
+/* 手順のチェックリスト */
+function mList(title, items, note) {
+  return '<div class="mlist"><div class="ml-h">' + esc(title) + '</div>' +
+    items.map((t, i) => '<div class="ml-i" id="ml' + i + '">' +
+      '<span class="ml-n">' + (i + 1) + '</span><span class="ml-t">' + t + '</span></div>').join('') +
+    (note ? '<div class="ml-note">' + note + '</div>' : '') + '</div>';
+}
+function mDone(states) {
+  states.forEach((on, i) => { const e = $('#ml' + i); if (e) e.classList.toggle('done', !!on); });
+}
+
+/* 「受付シートから書き写す」ボタン */
+function mCopyBtn(targetId, label, text) {
+  MCOPY[targetId] = text;
+  return '<button type="button" class="copybtn" id="mc_' + targetId + '" ' +
+    'onclick="mCopy(\'' + targetId + '\')">📄 ' + esc(label) + '</button>';
+}
+function mCopy(targetId) {
+  const el = $('#' + targetId); if (!el) return;
+  const b = $('#mc_' + targetId);
+  if (b) { b.classList.add('done'); b.textContent = '書き写しました'; }
+  clearFinger();
+  typeInto(el, MCOPY[targetId] || '', () => { if (window.mUpdate) mUpdate(); });
+}
+
+/* 「写真を撮る」…現地調査の2件目 */
+function mShoot() {
+  const b = $('#photoBox'); if (!b) return;
+  b.className = ''; b.innerHTML = SCENES[S.needs[S.curSurvey].call.survey.scene];
+  const btn = $('#shotBtn');
+  if (btn) { btn.classList.add('done'); btn.textContent = '撮影しました'; }
+  const f = $('#f_photo'); if (f) f.classList.remove('err');
+  modal('<h3>📷 写真を撮る前に</h3>' +
+    '<p><b>「記録のために写真を撮らせていただいてよろしいですか」</b>とひと言断ってから撮ります。</p>' +
+    '<p class="muted">被害の範囲が分かるように、引きと寄りを複数枚。' +
+    '撮った写真は災害VC内の判断にだけ使い、SNSなどには載せません。</p>' +
+    '<div class="btnrow end"><button class="btn" onclick="closeModal();if(window.mUpdate)mUpdate()">わかりました</button></div>');
+}
+
+/* 「取得」…名簿アプリから呼び出す */
+function mLookup() {
+  const v = norm($('#i_req').value);
+  const msg = $('#lookmsg');
+  if (!v) { msg.innerHTML = '<span style="color:var(--red)">先に氏名を書き写してください。</span>'; return; }
+  let hit = S.roster.find(r => norm(r.name) === v) || S.roster.find(r => norm(r.name).indexOf(v) >= 0);
+  let added = false;
+  if (!hit) {
+    const f = S.sheet.fields, d = (CONFIG.CALLS[S.curCall] || {}).newRoster || {};
+    hit = { name: f.name || $('#i_req').value, kana: d.kana, tel: f.tel, addr: f.addr,
+            sex: d.sex, age: d.age, type: d.type || '被災者' };
+    S.roster.push(hit); added = true;
+  }
+  $('#i_req').value = hit.name;
+  $('#i_tel').value = hit.tel || '';
+  $('#i_addr').value = hit.addr || '';
+  $('#i_type').value = hit.type || '';
+  lookupOK = true;
+  msg.innerHTML = added
+    ? '<span style="color:var(--green)">✓ 名簿にいなかったので、聞き取った内容で名簿に登録し、そのまま呼び出しました。</span>'
+    : '<span style="color:var(--green)">✓ 名簿アプリから、電話番号・住所・種別を呼び出しました。</span>';
+  if (window.mUpdate) mUpdate();
+}
 
 /* ============================================================
    kintoneへの入力を「見せる」しくみ
@@ -851,8 +930,13 @@ function sheetHtml(c, bare) {
 function needsForm(idx) {
   const c = CONFIG.CALLS[idx];
   S.curCall = idx;
+  lookupOK = false;
+  window.mUpdate = null;
   setTop(CONFIG.TIMES.needs, 'ニーズ受付', 'ニーズ班');
-  const body =
+  const manual = idx > 0;                 // 1件目は見る、2件目は自分でやる
+  const f = S.sheet.fields;
+
+  const head =
     '<div class="fld"><label>ニーズID</label><input type="text" class="readonly" readonly value="（保存すると自動で採番されます）"></div>' +
     '<div class="grp"><div class="gh">ニーズ受付情報</div><div class="gb">' +
       '<div class="fld"><label>受付時間</label><input type="text" class="readonly" readonly value="' + esc(CONFIG.TIMES.needs) + '"></div>' +
@@ -860,30 +944,88 @@ function needsForm(idx) {
       '<div class="fld" id="f_method"><label>受付方法<span class="req">必須</span></label>' +
         optsHtml('o_method', ['窓口', '電話', '訪問', '不明', 'その他'], false) +
         '<div class="errmsg"></div></div>' +
-    '</div></div>' +
+    '</div></div>';
+
+  if (!manual) {
+    const body = head +
+      '<div class="grp"><div class="gh">依頼者情報</div><div class="gb">' +
+        '<div class="fld"><label>依頼者<span class="req">必須</span></label>' +
+          '<input type="text" id="i_req" class="readonly" readonly></div>' +
+        '<div class="fld"><label>電話番号</label><input type="text" id="i_tel" class="readonly" readonly></div>' +
+        '<div class="fld"><label>住所</label><input type="text" id="i_addr" class="readonly" readonly></div>' +
+        '<div class="fld"><label>種別</label><input type="text" id="i_type" class="readonly" readonly></div>' +
+      '</div></div>' +
+      '<div class="fld"><label>依頼内容<span class="req">必須</span></label>' +
+        '<textarea id="i_body" class="readonly" readonly></textarea></div>';
+    show(
+      navi('電話が終わりました。<b>受付シートを見ながら、kintoneに入力します。</b><br>' +
+           '<span class="muted">まずは入力の様子を見てください。どの欄が、どこから来た情報なのかに注目です。' +
+           '<b>次の1件は、同じことをあなたにやってもらいます。</b></span>') +
+      '<div class="split">' +
+        '<div class="sheetcol">' + sheetHtml(c) + '</div>' +
+        '<div class="formcol">' + afPanel('入力する') + kin('needs', head === '' ? body : body, { plus: true }) + '</div>' +
+      '</div>' + sheetFab()
+    );
+    $('#afStart').onclick = () => afRun(needsSteps(idx), 'ニーズ管理アプリに保存しました。',
+      '保存して次へ', () => saveNeed(idx));
+    return;
+  }
+
+  /* ---- 2件目：自分で操作する ---- */
+  const bodyText = (f.state || c.modelText) + (S.sheet.memo.length ? '　' + S.sheet.memo.join(' ') : '');
+  const body = head +
     '<div class="grp"><div class="gh">依頼者情報</div><div class="gb">' +
-      '<div class="fld"><label>依頼者<span class="req">必須</span></label>' +
-        '<input type="text" id="i_req" class="readonly" readonly></div>' +
+      '<div class="fld" id="f_req"><label>依頼者<span class="req">必須</span></label>' +
+        '<div class="copybox">' + mCopyBtn('i_req', '受付シートの氏名を書き写す', f.name || c.requester) + '</div>' +
+        '<div class="lookup"><input type="text" id="i_req" class="readonly" readonly>' +
+        '<button class="btn btn-sm" onclick="mLookup()">取得</button></div>' +
+        '<div id="lookmsg" class="hint"></div><div class="errmsg"></div></div>' +
       '<div class="fld"><label>電話番号</label><input type="text" id="i_tel" class="readonly" readonly></div>' +
       '<div class="fld"><label>住所</label><input type="text" id="i_addr" class="readonly" readonly></div>' +
       '<div class="fld"><label>種別</label><input type="text" id="i_type" class="readonly" readonly></div>' +
     '</div></div>' +
-    '<div class="fld"><label>依頼内容<span class="req">必須</span></label>' +
-      '<textarea id="i_body" class="readonly" readonly></textarea></div>';
+    '<div class="fld" id="f_body"><label>依頼内容<span class="req">必須</span></label>' +
+      '<div class="copybox">' + mCopyBtn('i_body', '受付シートの依頼内容を書き写す', bodyText) + '</div>' +
+      '<textarea id="i_body" class="readonly" readonly></textarea>' +
+      '<div class="errmsg"></div></div>';
 
   show(
-    navi('電話が終わりました。<b>受付シートを見ながら、kintoneに入力します。</b><br>' +
-         '<span class="muted">ここでは入力の様子を見てもらいます。どの欄が、どこから来た情報なのかに注目してください。</span>') +
+    navi('<b>今度は自分でやってみましょう。</b><br>' +
+         'さきほど見たのと同じ手順です。<b>文字を打つ必要はありません。</b>' +
+         '選ぶ・押す、だけで入力できます。<br>' +
+         '<span class="muted">迷ったら右下（パソコンでは左）の受付シートを見てください。</span>') +
     '<div class="split">' +
       '<div class="sheetcol">' + sheetHtml(c) + '</div>' +
       '<div class="formcol">' +
-        afPanel('入力する') +
-        kin('needs', body, { plus: true }) +
+        mList('入力の手順', [
+          '<b>受付方法</b>を選ぶ（受付シートのとおりに）',
+          '氏名を<b>書き写して</b>から「<b>取得</b>」を押す',
+          '<b>依頼内容</b>を書き写す',
+          '「<b>保存</b>」を押す'
+        ]) +
+        kin('needs', body, { plus: true,
+          foot: '<button class="btn" id="mSave" onclick="mSaveNeed(' + idx + ')">保存</button>' }) +
       '</div>' +
     '</div>' + sheetFab()
   );
-  $('#afStart').onclick = () => afRun(needsSteps(idx), 'ニーズ管理アプリに保存しました。',
-    '保存して次へ', () => saveNeed(idx));
+  window.mUpdate = function () {
+    mDone([ !!pick1('o_method'), lookupOK, !!$('#i_body').value.trim(), false ]);
+    autoPoint();
+  };
+  mUpdate();
+}
+
+/* 2件目の保存。足りないところは、やさしく教えます */
+function mSaveNeed(idx) {
+  clearFails();
+  if (!pick1('o_method')) return fail('f_method', '受付シートを見て、受付方法を選んでください。');
+  if (!lookupOK)          return fail('f_req', '氏名を書き写してから「取得」を押してください。名簿から電話番号と住所が入ります。');
+  if (!$('#i_body').value.trim()) return fail('f_body', '「受付シートの依頼内容を書き写す」を押してください。');
+  mark(true, '2件目は、自分でkintoneに入力できた',
+    '受付方法を選び、氏名から「取得」で名簿を引き、依頼内容を書き写して保存する。' +
+    '本番のkintoneでも、この順番は同じです。<b>迷ったら受付シートを見る</b>——それだけ覚えておいてください。');
+  window.mUpdate = null;
+  saveNeed(idx);
 }
 
 /* ニーズ管理アプリに、何がどこから入るのか */
@@ -1092,6 +1234,7 @@ function sceneSurvey(i, desk) {
   const n = S.needs[i];
   const sv = n.call.survey;
   n.deskOnly = !!desk;
+  S.curSurvey = i;
   setTop(CONFIG.TIMES.survey, (desk ? '現地調査なしで入力' : '現地調査') + '（' + (i + 1) + '/' + S.needs.length + '）',
          desk ? 'ニーズ班' : '現地調査班');
 
@@ -1105,32 +1248,104 @@ function sceneSurvey(i, desk) {
         '<div style="background:#f6f8f8;border:1px dashed #c9d1d4;border-radius:6px;padding:11px;font-size:1rem;color:#6b7a80">' +
         '現地調査を行っていないため、現場の写真も、現地での聞き取りもありません。<br>' +
         '<b>電話で聞き取った内容だけ</b>が手がかりです。</div></div>'
-      : '<div class="fld"><label>写真</label>' +
-        '<div id="photoBox" class="photobox">まだ撮影していません</div></div>' +
+      : '<div class="fld" id="f_photo"><label>写真</label>' +
+        '<div id="photoBox" class="photobox">まだ撮影していません</div>' +
+        (i > 0 ? '<button type="button" class="copybtn" style="margin-top:8px" id="shotBtn" onclick="mShoot()">📷 写真を撮る</button>' : '') +
+        '<div class="errmsg"></div></div>' +
         '<div class="fld"><label>現地で聞き取った内容</label>' +
         '<div style="background:#fbfaf5;border:1px dashed #d8cdb4;border-radius:6px;padding:11px;font-size:1rem">' + esc(sv.memo) + '</div></div>') +
     '<hr class="sep">' +
-    '<div class="fld"><label>被災状況</label>' + optsHtml('o_dmg', ['床上浸水', '床下浸水', '一部破損', '土砂流入', 'その他'], true) + '</div>' +
-    '<div class="fld"><label>依頼分類</label>' + optsHtml('o_cat', ['土砂撤去', '荷物運び出し', '清掃', 'その他'], true) + '</div>' +
-    '<div class="fld"><label>必要人数等</label>' + optsHtml('o_ppl', CONFIG.PEOPLE_CHOICES, false) + '</div>' +
-    '<div class="fld"><label>資機材等</label>' + optsHtml('o_eq', CONFIG.EQUIPMENT, true) + '</div>' +
-    '<div class="fld"><label>危機介入の必要性</label>' + optsHtml('o_cri', ['必要あり'], true) + '</div>' +
-    '<div class="fld"><label>特記事項・メモ</label><textarea id="i_memo" class="readonly" readonly></textarea></div>';
+    '<div class="fld" id="f_dmg"><label>被災状況</label>' + optsHtml('o_dmg', ['床上浸水', '床下浸水', '一部破損', '土砂流入', 'その他'], true) + '<div class="errmsg"></div></div>' +
+    '<div class="fld" id="f_cat"><label>依頼分類</label>' + optsHtml('o_cat', ['土砂撤去', '荷物運び出し', '清掃', 'その他'], true) + '<div class="errmsg"></div></div>' +
+    '<div class="fld" id="f_ppl"><label>必要人数等</label>' + optsHtml('o_ppl', CONFIG.PEOPLE_CHOICES, false) + '<div class="errmsg"></div></div>' +
+    '<div class="fld" id="f_eq"><label>資機材等</label>' + optsHtml('o_eq', CONFIG.EQUIPMENT, true) + '<div class="errmsg"></div></div>' +
+    '<div class="fld"><label>危機介入の必要性</label>' + optsHtml('o_cri', ['必要あり'], true) +
+      (i > 0 ? '<div class="hint">生命や生活が今すぐ脅かされている方は、ここにチェックを入れて優先します。<b>自分で判断してください。</b></div>' : '') + '</div>' +
+    '<div class="fld" id="f_memo"><label>特記事項・メモ</label>' +
+      (i > 0 ? '<div class="copybox">' + mCopyBtn('i_memo', '見立てた理由を書き写す', sv.memoTip || '') + '</div>' : '') +
+      '<textarea id="i_memo" class="readonly" readonly></textarea><div class="errmsg"></div></div>';
 
+  const manual = i > 0;                 // 1件目は見る、2件目は自分でやる
+  if (!manual) {
+    show(
+      (desk
+        ? navi('このニーズは<b>現地調査を「不要」</b>と判断しました。現場には行かず、' +
+               '電話で聞き取った内容だけで<b>必要人数</b>と<b>資機材</b>を決めます。')
+        : navi('現場に着きました。<b>写真を撮り、状況を確認して、その場でスマホからkintoneに入力します。</b><br>' +
+               '<span class="muted">1項目ずつ見てください。<b>次の1件は、あなたにやってもらいます。</b></span>')) +
+      '<div style="max-width:430px;margin:0 auto">' +
+        '<p class="muted center">' + (desk ? '🖥 センターで入力しています' : '📱 スマホから入力しています') + '</p>' +
+        afPanel('現地調査の結果を入力する') +
+        kin('needs', body) +
+      '</div>'
+    );
+    $('#afStart').onclick = () => afRun(surveySteps(i, desk),
+      'ニーズ管理アプリに保存しました。', '保存して次へ', () => saveSurvey(i));
+    return;
+  }
+
+  /* ---- 2件目：自分で操作する ---- */
   show(
-    (desk
-      ? navi('このニーズは<b>現地調査を「不要」</b>と判断しました。現場には行かず、' +
-             '電話で聞き取った内容だけで<b>必要人数</b>と<b>資機材</b>を決めます。')
-      : navi('現場に着きました。<b>写真を撮り、状況を確認して、その場でスマホからkintoneに入力します。</b><br>' +
-             '<span class="muted">何をどう判断して入力するのかを、1項目ずつ見てください。</span>')) +
+    navi('<b>今度は自分でやってみましょう。</b>さきほどと同じ手順です。<br>' +
+         '写真を撮り、現場の様子から<b>被災状況・依頼分類・必要人数・資機材</b>を選びます。<br>' +
+         '<span class="muted">危機介入の必要性は、<b>聞き取った内容から自分で判断</b>してください。</span>') +
     '<div style="max-width:430px;margin:0 auto">' +
       '<p class="muted center">' + (desk ? '🖥 センターで入力しています' : '📱 スマホから入力しています') + '</p>' +
-      afPanel('現地調査の結果を入力する') +
-      kin('needs', body) +
+      mList('入力の手順',
+        (desk ? [] : ['<b>写真を撮る</b>（ひと言断ってから）']).concat([
+          '<b>被災状況</b>を選ぶ',
+          '<b>依頼分類</b>を選ぶ',
+          '<b>必要人数</b>を選ぶ',
+          '<b>資機材</b>を選ぶ',
+          '<b>特記事項</b>を書き写す',
+          '「<b>保存</b>」を押す'
+        ]),
+        '<b>危機介入の必要性</b>は手順に入れていません。' +
+        '現場の様子とご本人の状況から、自分で判断してチェックしてください。') +
+      kin('needs', body, { foot: '<button class="btn" onclick="mSaveSurvey(' + i + ',' + !!desk + ')">保存</button>' }) +
     '</div>'
   );
-  $('#afStart').onclick = () => afRun(surveySteps(i, desk),
-    'ニーズ管理アプリに保存しました。', '保存して次へ', () => saveSurvey(i));
+  window.mUpdate = function () {
+    const base = desk ? [] : [ !!$('#photoBox .svgbox') ];
+    mDone(base.concat([
+      picked('o_dmg').length > 0, picked('o_cat').length > 0,
+      !!pick1('o_ppl'), picked('o_eq').length > 0,
+      !!$('#i_memo').value.trim(), false
+    ]));
+    autoPoint();
+  };
+  mUpdate();
+}
+
+/* 2件目の現地調査の保存 */
+function mSaveSurvey(i, desk) {
+  const n = S.needs[i], sv = n.call.survey;
+  clearFails();
+  if (!desk && !$('#photoBox .svgbox')) return fail('f_photo', '「写真を撮る」を押してください。ひと言断ってから撮ります。');
+  if (!picked('o_dmg').length) return fail('f_dmg', '現場の様子から、被災状況を選んでください。');
+  if (!picked('o_cat').length) return fail('f_cat', '何をする活動なのか、依頼分類を選んでください。');
+  if (!pick1('o_ppl'))         return fail('f_ppl', '必要人数を選んでください。決まった正解はありません。');
+  if (!picked('o_eq').length)  return fail('f_eq', '資機材を選んでください。資機材班はこの記載どおりに準備します。');
+  if (!$('#i_memo').value.trim()) return fail('f_memo', '「特記事項を書き写す」を押してください。');
+
+  const cri = picked('o_cri').length > 0;
+  if (sv.crisis) {
+    mark(cri, '危機介入の必要性を、自分で判断できた',
+      cri ? '正しく判断できました。' + sv.crisisWhy
+          : '<b>見落としがありました。</b>' + sv.crisisWhy);
+  } else {
+    mark(!cri, '危機介入のチェックを、本当に必要な方だけに絞れた',
+      cri ? esc(n.requester) + 'さんはご家族と同居で、母屋にも被害がありません。ここにチェックを付けると、' +
+            '本当に急ぐ方が埋もれてしまいます。<b>全部に付けるのは、何も付けないのと同じ</b>です。'
+          : 'ご家族と同居で母屋も無事なので、チェックなしが妥当です。優先すべき方を埋もれさせない判断ができました。');
+  }
+  mark(true, '2件目は、自分で現地調査の結果を入力できた',
+    '写真を撮り、状況を選び、根拠を書き写して保存する。本番のkintoneでも同じ順番です。');
+
+  window.mUpdate = null;
+  n.pDmg = picked('o_dmg'); n.pCat = picked('o_cat');
+  n.pPpl = parseInt(pick1('o_ppl'), 10); n.pEq = picked('o_eq');
+  saveSurvey(i, true);
 }
 
 /* 現地調査で分かったことが、どう入るのか */
@@ -1187,10 +1402,10 @@ function saveSurvey(i) {
   const sv = n.call.survey;
 
   n.status   = '活動中';
-  n.people   = sv.people;
-  n.equip    = sv.equip.slice();
+  n.people   = n.pPpl || sv.people;
+  n.equip    = (n.pEq && n.pEq.length) ? n.pEq.slice() : sv.equip.slice();
   n.crisis   = sv.crisis;
-  n.category = sv.category.slice();
+  n.category = (n.pCat && n.pCat.length) ? n.pCat.slice() : sv.category.slice();
   n.memo     = sv.memoTip || '';
   n.surveyed = true;
 
@@ -1619,7 +1834,7 @@ function answerShort(a) {
         'そこは今日いちばん優先すると決めた現場です。人数が足りないなら、' +
         '足りないまま送り出すか、翌日に回すかを選びます。優先順位を自分で崩さないでください。';
   }
-  mark(ok, '人数がそろわない現場の扱いを判断した', d);
+  mark(ok, '人数がそろわない現場の扱いを判断した', d, ok ? 'think' : 'point');
   const free = S.vols.filter(v => v.assignedTo == null && v.ins === '加入済み').length;
   modal('<h3>' + (ok ? '✓ その判断はあり得ます' : '順番を確認しましょう') + '</h3><p>' + d + '</p>' +
     '<div class="btnrow end"><button class="btn" onclick="closeModal();' +
@@ -1648,7 +1863,7 @@ function answerSurplus(a) {
         '人が集まりすぎて本当に帰っていただく日もありますが、そのときも' +
         '<b>「明日も来てもらえますか」と必ず聞いてください。</b>黙って帰した方は、もう来ません。';
   }
-  mark(ok, '活動先が決まらなかった方への対応を考えた', d);
+  mark(ok, '活動先が決まらなかった方への対応を考えた', d, ok ? 'think' : 'point');
   modal('<h3>' + (ok ? '✓ その対応はあり得ます' : 'もう一歩考えましょう') + '</h3><p>' + d + '</p>' +
     '<div class="btnrow end"><button class="btn" onclick="closeModal();issueDoc()">活動依頼書を発行する</button></div>');
 }
@@ -2127,38 +2342,43 @@ function answerRoadHelp(a) {
 function sceneResult() {
   setTop(CONFIG.TIMES.result, '本日終了', 'ふりかえり');
   $('#progressbar').style.width = '100%';
-  const ok = S.review.filter(r => r.ok).length;
-  const total = S.review.length || 1;
-  const score = Math.round(ok / total * 100);
-  const comment =
-    score >= 90 ? '流れも判断も、しっかりつかめています。次は本番のkintoneで同じ手順をやってみましょう。' :
-    score >= 70 ? '大きな流れはつかめています。×がついた項目だけ、もう一度読んでおいてください。' :
-    score >= 40 ? '流れは体験できました。×の項目は、実際の災害VCでよく起きる失敗です。もう一度やってみましょう。' :
-                  'まずは1日の流れを体験できたことが第一歩です。解説を読んで、もう一度やってみましょう。';
+
+  const g = { ok: [], point: [], think: [] };
+  S.review.forEach(r => { (g[r.kind] || g.point).push(r); });
+
+  const block = (list, cls, icon, head, lead) => list.length
+    ? '<div class="panel">' +
+        '<h2><span class="rv-ic ' + cls + '">' + icon + '</span>' + head + '</h2>' +
+        (lead ? '<p class="muted">' + lead + '</p>' : '') +
+        list.map(r => '<div class="rev ' + cls + '">' +
+          '<div class="rt">' + esc(r.title) + '</div>' +
+          '<div class="rd">' + r.detail + '</div></div>').join('') +
+      '</div>'
+    : '';
 
   show(
     '<div class="panel center">' +
-      '<p class="muted" style="margin:0">本日の運営のふりかえり</p>' +
-      '<div class="score">' + score + '</div>' +
-      '<p class="muted">' + ok + ' / ' + total + ' 項目</p>' +
-      '<p style="text-align:left">' + comment + '</p>' +
-      '<p class="muted" style="text-align:left;font-size:.88rem">※ この点数は<b>運営の手順</b>についてのものです。' +
-      '実際の災害では、対応できた件数の多さで良し悪しが決まるわけではありません。</p>' +
+      '<p class="muted" style="margin:0">' + esc(CONFIG.DAY) + '　おつかれさまでした</p>' +
+      '<h2 style="margin:8px 0 12px">今日の運営をふりかえります</h2>' +
+      '<p style="text-align:left"><b>点数はつけません。</b>' +
+      '災害VCの運営に、点の取り方はありません。' +
+      'うまくいかなかったところこそ、実際の現場でよく起きることです。' +
+      '「そうなんだな」と持ち帰ってもらえれば十分です。</p>' +
     '</div>' +
-    '<div class="panel">' +
-      '<h2>今日おさえたこと</h2>' +
-      S.review.map(r =>
-        '<div class="rev ' + (r.ok ? 'ok' : 'ng') + '">' +
-          '<div class="rt">' + (r.ok ? '○ ' : '× ') + esc(r.title) + '</div>' +
-          '<div class="rd">' + r.detail + '</div>' +
-        '</div>').join('') +
-    '</div>' +
+
+    block(g.point, 'ng', '💡', 'ここは覚えて帰ってください',
+      '実際の災害VCでよく起きることばかりです。責める意味はまったくありません。') +
+    block(g.think, 'think', '💬', '職場で話し合ってみてください',
+      '<b>正解がひとつではない場面</b>です。あなたが選んだ対応もあり得ます。' +
+      '「うちならどうする」を、ぜひ同僚と話してみてください。') +
+    block(g.ok, 'ok', '✓', 'できていたこと', '') +
+
     '<div class="panel">' +
       '<h2>今日たどった流れ</h2>' +
-      '<p style="font-size:1rem">①ニーズ受付（ニーズ班）→ ②現地調査（現地調査班）→ ③当日受付（当日受付班）→ ' +
-      '④オリエン・マッチング（マッチング班）→ ⑤資機材準備・送り出し（資機材・送出し班）→ ' +
-      '⑥ボランティア活動 → ⑦活動報告（マッチング班）</p>' +
-      '<p class="muted">この7つの工程を、6つのアプリでつないでいるのが災害VCのシステムです。' +
+      '<p style="font-size:1rem">①ニーズ受付 → ②現地調査 → ③当日受付 → ' +
+      '④オリエン・マッチング → ⑤資機材準備・送り出し → ⑥ボランティア活動 → ' +
+      '⑦活動報告 → ⑧活動後の手続き</p>' +
+      '<p class="muted">この流れを、6つのアプリでつないでいるのが災害VCのシステムです。' +
       '<b>あなたの入力は、必ず次の班の判断材料になります。</b>それが今日いちばん覚えて帰ってほしいことです。</p>' +
     '</div>' +
     '<div class="panel center">' +
@@ -2203,14 +2423,14 @@ const NAV = { stack: [], lock: false };
 function snapshot() {
   return JSON.stringify({
     S: S,
-    certOK: certOK, selNeed: selNeed, reportLinked: reportLinked
+    lookupOK: lookupOK, certOK: certOK, selNeed: selNeed, reportLinked: reportLinked
   });
 }
 function restoreSnap(str) {
   const o = JSON.parse(str);
   Object.keys(S).forEach(k => { delete S[k]; });
   Object.keys(o.S).forEach(k => { S[k] = o.S[k]; });
-  certOK = o.certOK; selNeed = o.selNeed; reportLinked = o.reportLinked;
+  lookupOK = o.lookupOK; certOK = o.certOK; selNeed = o.selNeed; reportLinked = o.reportLinked;
 }
 function remember(fn, args) {
   if (NAV.lock) return;
