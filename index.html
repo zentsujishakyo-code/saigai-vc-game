@@ -410,6 +410,22 @@ button:disabled{opacity:.4;cursor:not-allowed;}
   border-radius:6px;padding:9px 12px;margin-top:8px;font-size:.92rem;font-weight:bold;
 }
 
+/* 入力した欄のすぐ下に出る、理由の吹き出し */
+.callout{
+  position:relative;margin-top:9px;
+  background:#fffaf0;border:2px solid var(--orange);border-radius:8px;
+  padding:11px 13px;
+}
+.callout::before{
+  content:"";position:absolute;top:-11px;left:24px;
+  border-left:10px solid transparent;border-right:10px solid transparent;
+  border-bottom:10px solid var(--orange);
+}
+.co-top{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.co-n{margin-left:auto;font-size:.8rem;color:var(--sub);white-space:nowrap;}
+.co-say{font-size:.93rem;margin-bottom:10px;}
+.co-next{padding:9px 24px;}
+
 /* ===== 受付シートから書き写すボタン ===== */
 .copybox{
   background:#fdf6e8;border:1px dashed #d6c69b;border-radius:6px;

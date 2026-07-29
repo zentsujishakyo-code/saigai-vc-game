@@ -127,20 +127,23 @@ function afRun(steps, doneMsg, doneLabel, doneFn) {
 
 function afNext() {
   if (!AF) return;
+  afClearCallout();
   if (AF.i >= AF.steps.length) return afFinish();
   const s = AF.steps[AF.i++];
   const el  = s.sel ? $(s.sel) : null;
   const fld = el ? el.closest('.fld') : null;
+  AF.cur = { s: s, fld: fld };
 
+  // 記録として残すログ（あとから見返せるように、見出しだけ）
   $('#aflog').insertAdjacentHTML('beforeend',
-    '<div class="af-line fade">' + afSrcTag(s.src) + '<b>' + esc(s.label) + '</b>' +
-    (s.say ? '<div class="af-say">' + s.say + '</div>' : '') + '</div>');
+    '<div class="af-line fade">' + afSrcTag(s.src) + '<b>' + esc(s.label) + '</b></div>');
   const log = $('#aflog'); if (log) log.scrollTop = log.scrollHeight;
   if (fld) { fld.classList.add('filling'); fld.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
 
   const after = () => {
+    if (s.say) return afCallout(s, fld);         // 理由を読んでもらって、次へ
     if (fld) setTimeout(() => fld.classList.remove('filling'), 350);
-    setTimeout(afNext, s.pause || 620);
+    setTimeout(afNext, s.pause || 700);          // 説明のない項目だけ自動で進む
   };
 
   if (s.type === 'opt') {
@@ -148,33 +151,50 @@ function afNext() {
       const o = document.querySelector(s.sel + ' .opt[data-v="' + v + '"]');
       if (o) o.click();
     });
-    after();
+    setTimeout(after, 350);
   } else if (el) {
     typeInto(el, String(s.value == null ? '' : s.value), after);
   } else {
-    after();                       // 説明だけのステップ
+    setTimeout(after, 350);                      // 説明だけのステップ
   }
 }
 
-function afFinish() {
-  const a = AF; AF = null;
-  $('#aflog').insertAdjacentHTML('beforeend', '<div class="af-done fade">✓ ' + a.doneMsg + '</div>');
-  const log = $('#aflog'); if (log) log.scrollTop = log.scrollHeight;
-  const b = $('#afStart');
-  if (b) { b.disabled = false; b.textContent = a.doneLabel; b.onclick = a.doneFn; }
-  setTimeout(autoPoint, 200);
+/* 入力した欄のすぐ下に、なぜそう入力したのかを出します。
+   プレイヤーが「次へ」を押すまで止まります。 */
+function afCallout(s, fld) {
+  const html =
+    '<div class="callout fade" id="afco">' +
+      '<div class="co-top">' + afSrcTag(s.src) +
+        '<b>' + esc(s.label) + '</b>' +
+        '<span class="co-n">' + AF.i + ' / ' + AF.steps.length + '</span></div>' +
+      '<div class="co-say">' + s.say + '</div>' +
+      '<button class="btn co-next" onclick="afNext()">' +
+        (AF.i >= AF.steps.length ? '入力を終える' : '次へ') + '</button>' +
+    '</div>';
+  if (fld) fld.insertAdjacentHTML('beforeend', html);
+  else $('#aflog').insertAdjacentHTML('beforeend', html);
+  const co = $('#afco');
+  if (co) co.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setTimeout(autoPoint, 300);
+}
+function afClearCallout() {
+  const co = document.getElementById('afco');
+  if (co) co.remove();
+  if (AF && AF.cur && AF.cur.fld) AF.cur.fld.classList.remove('filling');
 }
 
 /* 1文字ずつ入っていくように見せる */
 function typeInto(el, text, done) {
   el.value = '';
   let i = 0;
-  const sp = Math.max(6, Math.min(22, 620 / Math.max(1, text.length)));
+  // 短い欄はゆっくり、長い文章は少し速く。全体の速さは config.js の TYPE_SPEED で変えられます
+  const base = CONFIG.TYPE_SPEED || 1;
+  const sp = Math.max(16, Math.min(55, 2400 / Math.max(1, text.length))) * base;
   const t = setInterval(() => {
-    i += 2;
+    i += 1;
     el.value = text.slice(0, i);
     el.scrollTop = el.scrollHeight;
-    if (i >= text.length) { clearInterval(t); el.value = text; if (done) done(); }
+    if (i >= text.length) { clearInterval(t); el.value = text; if (done) setTimeout(done, 250); }
   }, sp);
 }
 
@@ -211,6 +231,7 @@ function autoPoint() {
   if (document.querySelector('.qbtn')) return clearFinger();      // 聞き取り中は出さない
   if (document.querySelectorAll('.panel .btn-gray.btn-lg').length >= 2) return clearFinger(); // 3択の設問
   const el =
+    $('.co-next') ||
     $$('#afStart').find(b => !b.disabled) ||
     $$('.btn-lg').find(b => !b.disabled && !b.classList.contains('btn-gray')) ||
     $('.actbtn') ||
